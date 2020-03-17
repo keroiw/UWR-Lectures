@@ -1,0 +1,248 @@
+---
+title: "Analiza dużych zbiorów danych 1"
+author: "Błażej Wiórek"
+date: "3/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set
+
+library(ggplot2)
+library(gridExtra)
+library(pROC)
+library(VGAM)
+library(reshape2)
+```
+
+## Zbiór danych
+
+Zbiór składa się z dwóch zmiennych objaśniających:
+
+1. Numeracy - wynik testów rachunkowych
+2. Anxiety - poziom niepewności
+
+Oraz zmiennej objaśnianej w postaci indykatora: anxiety $\in \{0, 1\}$
+
+```{r Data}
+data <- structure(list(numeracy = c(6.6, 7.1, 7.3, 7.5, 7.9, 7.9, 8,
+                                 8.2, 8.3, 8.3, 8.4, 8.4, 8.6, 8.7, 8.8, 8.8, 9.1, 9.1, 9.1, 9.3,
+                                 9.5, 9.8, 10.1, 10.5, 10.6, 10.6, 10.6, 10.7, 10.8, 11, 11.1,
+                                 11.2, 11.3, 12, 12.3, 12.4, 12.8, 12.8, 12.9, 13.4, 13.5, 13.6,
+                                 13.8, 14.2, 14.3, 14.5, 14.6, 15, 15.1, 15.7), 
+                    anxiety = c(13.8, 14.6, 17.4, 14.9, 13.4, 13.5, 13.8, 16.6, 13.5, 15.7, 13.6, 14,
+                                16.1, 10.5, 16.9, 17.4, 13.9, 15.8, 16.4, 14.7, 15, 13.3, 10.9,
+                                12.4, 12.9, 16.6, 16.9, 15.4, 13.1, 17.3, 13.1, 14, 17.7, 10.6,
+                                14.7, 10.1, 11.6, 14.2, 12.1, 13.9, 11.4, 15.1, 13, 11.3, 11.4,
+                                10.4, 14.4, 11, 14, 13.4), 
+                    success = c(0L, 0L, 0L, 1L, 0L, 1L, 0L, 0L, 1L, 0L, 1L, 1L, 0L, 1L, 0L, 0L, 0L, 0L, 0L, 1L, 0L, 0L,
+                                1L, 1L, 1L, 0L, 0L, 0L, 1L, 0L, 1L, 0L, 0L, 1L, 1L, 1L, 1L, 1L,
+                                1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L)), 
+                 .Names = c("numeracy", "anxiety", "success"), row.names = c(NA, -50L), class = "data.frame")
+data_df <- as.data.frame(data)
+```
+
+Przed przejściem do właściwego zadania (dopasowania modelu) warto sprawdzić rozkład wartości w poszczególnych predyktorach oraz stosunek klas w zmiennej objaśnianej. 
+
+```{r DataVisualization}
+par(mfrow=c(3,1))
+g1 <- ggplot(data_df) + geom_histogram(aes(x=numeracy), binwidth = 0.5) + ggtitle("Numeracy histogram")
+g2 <- ggplot(data_df) + geom_histogram(aes(x=anxiety), binwidth = 1) + ggtitle("Anxiety histogram") 
+g3 <- ggplot(data_df) + geom_histogram(aes(x=success), binwidth = 0.5) + ggtitle("Success vs. Failure")
+grid.arrange(g1, g2, g3, nrow = 1)
+```
+
+Wnioski: Na podstawie histogramów można stwierdzić, że w zbiorze nie występują wartości odstające oraz liczba skucesów i porażek jest porównywalna. Można więc przejść do dopasowania modelu bez dalszego wkładu pracy. 
+
+## Dopasowanie modelu (logit)
+
+Zadanie składa się z czterech podpunktów:
+
+a) Przeanalizowanie zbioru danych za pomocą regresji logistycznej.
+b) Podanie estymatorów parametrów i wyniki testów istotności.
+c) Określenie jakie jest przewidywane p-stwo sukcesu u studenta, którego anxiety=13 a numeracy=10.
+d) Wyrysowanie krzywej ROC dla dopasowanego modelu statystycznego.
+
+Podsumowanie wygenerowane dla dopasowanego modelu umożliwia zrealizowanie podpunktów a) - b). 
+
+Wykorzystana funkcja łącząca (logit) ma następującą postać:
+$$
+logit(p_i) = log(\frac{p_i}{1 - p_i})
+$$
+
+Przy czym $p_i = P(Y=1|X_i)$.
+
+```{r ModelFitLogit}
+model_logit <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial)
+summary(model_logit)
+```
+
+Dopasowany model regresji logistycznej ma następującą postać:
+$$
+\eta(p_i) = 14.2386 + 0.5774 * numeracy_i - 1.3841 * anxiety_i 
+$$
+
+Przedstawione wartości statystyki testowej oznaczone jako 'z value' i związane z nimi p-wartości 'Pr(>|z|)' odzwierciedlają wyniki testu Walda. Test Walda ma następującą postać: $H_0: \beta_i = 0$, $H_A: \beta_i \neq 0$. Wykorzystana statystyka: $W = \frac{\beta_i}{var(\beta_i)}$. Pod warunkiem $H_0$, rozkład statystyki można przybliżyć za pomocą standardowego rozkładu normalnego. 
+
+Z przedstawionego podsumowania można wywnioskować, że przyjmując poziom istotności na poziomie $\alpha=0.01$, wszystkie zmienne objaśniające zawarte w modelu są istotne (brak podstaw do odrzucenia $H_0$).
+
+Obliczenie prawdopodobieństwo sukcesu dla studenta u którego anxiety=13 i numeracy=10 można przeprowadzić ręcznie na podstawie wzoru:
+$$
+p = \frac{e^{\hat{\beta_0} + \hat{\beta_1}*10 + \hat{\beta_2}*13}}{1 + e^{\hat{\beta_0} + \hat{\beta_1}*10 + \hat{\beta_2}*13}}
+$$
+```{r manual_prob}
+model_coefs<- model_logit$coefficients
+model_res <- sum(c(1, 10, 13) * model_coefs)
+estimated_p <- exp(model_res) / (1 + exp(model_res))
+print(paste('Manually estimated probability for numeracy=13, anxiety=10: ', round(estimated_p, 5)))
+```
+
+Można również skorzystać z gotowej funkcji:
+```{r automatic_prob_logit}
+pred_logit <- predict(model_logit, data.frame(anxiety=13, numeracy=c(10)), type="response")
+print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_logit, 5)))
+```
+
+## Dopasowanie modelu (probit)
+
+Wykorzystana funkcja łącząca (probit) ma następującą postać:
+$$
+probit(p_i) = \Phi^{-1}(p_i)
+$$
+
+```{r ModelFitProbit}
+model_probit <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial(link="probit"))
+summary(model_probit)
+```
+
+Dopasowany model regresji logistycznej ma następującą postać:
+$$
+\eta(p_i) = 8.2573 + 0.3371 * numeracy_i - 0.8039 * anxiety_i 
+$$
+
+Predykcja dla numeracy=13, anxiety=10:
+```{r automatic_prob_probit}
+pred_probit <- predict(model_probit, data.frame(anxiety=13, numeracy=c(10)), type="response")
+print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_probit, 5)))
+```
+
+## Dopasowanie modelu (cauchit)
+
+Wykorzystana funkcja łącząca (cauchit) ma następującą postać:
+$$
+cauchit(p_i) = F^{-1}(p_i)
+$$
+Przy czym F to dystrybuanta rozkładu Cauchy'ego. 
+
+```{r ModelFitCauchit}
+model_cauchit <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial(link="cauchit"))
+summary(model_cauchit)
+```
+
+Warto zauważyć, że zgodnie z przedstawionym podsumowaniem, wyniki testów istotności poszczególnych predyktorów nie dają podstaw do odrzucenia $H_0: \beta_0 = 0$ i $H_0: \beta_1 = 0$. Wydaje się, że istnieje zależność pomiędzy zmienną 'anxiety' a zmienną objaśnianą, jednak p-wartość dla 'anxiety' również jest relatywnie wysoka. 
+
+Dopasowany model regresji logistycznej ma następującą postać:
+$$
+\eta(p_i) = 18.3830 + 0.7323 * numeracy_i - 1.7741 * anxiety_i 
+$$
+
+Predykcja dla numeracy=13, anxiety=10:
+```{r automatic_prob_cauchit}
+pred_cauchit <- predict(model_cauchit, data.frame(anxiety=13, numeracy=c(10)), type="response")
+print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_cauchit, 5)))
+```
+
+## Dopasowanie modelu (cloglog)
+
+Wykorzystana funkcja łącząca (cloglog) ma następującą postać:
+$$
+cloglog(p_i) = log(-log(1 - p_i))
+$$
+
+```{r ModelFitCloglog}
+model_cloglog <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial(link="cloglog"))
+summary(model_cloglog)
+```
+
+Dopasowany model regresji logistycznej ma następującą postać:
+$$
+\eta(p_i) = 9.0006 + 0.4024 * numeracy_i - 0.9390 * anxiety_i 
+$$
+
+Predykcja dla numeracy=13, anxiety=10:
+```{r automatic_prob_cloglog}
+pred_cloglog <- predict(model_cloglog, data.frame(anxiety=13, numeracy=c(10)), type="response")
+print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_cloglog, 5)))
+```
+
+## Porównanie przedstawionych modeli
+
+```{r Models_Comparison}
+model_names <- c("logit", "probit", "cauchit", "cloglog")
+aic_v <- c(AIC(model_logit), AIC(model_probit), AIC(model_cauchit), AIC(model_cloglog))
+deviance <- c(model_logit$deviance, model_probit$deviance, model_cauchit$deviance, model_cloglog$deviance)
+names(aic_v) <- model_names
+names(deviance) <- model_names
+comparison_df <- data.frame(AIC=aic_v, Deviance=deviance)
+comparison_df
+```
+
+Model wykorzystujący probit jako link function charakteryzuje się najniższą wartością AIC oraz Deviance. Na tej podstawie mogę określić, że jest to model charakteryzujący się najlepszym dopasowaniem = najmniejszym błędem.  
+
+Ogólnie warto zauważyć, że wszystkie wartości są do siebie zbliżone, z czego wynika, że przedstawione modele niewiele się od siebie różnią. Aby zwizualizować różnicę postanowiłem przedstawić wykresy poszczególnych funkcji:
+```{r LinkFunctionsComparison}
+args = seq(-4, 4, by=0.01)
+logit_y <- logitlink(args, inverse=TRUE)
+probit_y <- probitlink(args, inverse=TRUE)
+cauchit_y <- cauchitlink(args, inverse=TRUE)
+cloglog_y <- clogloglink(args, inverse=TRUE)
+
+link_funcs_ds <- data.frame(x=args, logit=logit_y, probit=probit_y, cauchit=cauchit_y, cloglog=cloglog_y)
+link_funcs_ds.melted <- melt(link_funcs_ds, id = c("x"))
+colnames(link_funcs_ds.melted) <- c("x", "Linkage", "Probability")
+
+p <- ggplot(link_funcs_ds.melted, aes(x=x, y=Probability)) +
+     geom_line(aes(color=Linkage))
+plot(p)
+```
+
+### Krzywe ROC
+
+Innym sposobem na porównanie skuteczności modeli jest wykorzystanie krzywej ROC. Aby zrozumieć sens stosowania krzywych ROC należy najpierw zastanowić się w jaki sposób regresja logistyczna wykonuje zadanie klasyfikacji binarnej. Jako, że model umożliwia estymowanie prawdopodobieństwa $p_i = P(Y=1|X_i)$, wykorzystuje się następującą regułę: $Y=1$ jeśli $p_i \geq T$ oraz $Y=0$ w przeciwnym wypadku. Wartość $T \in [0,1]$ to tzw. threshold.
+
+Zwiększanie wartości $T$ powoduje, że coraz trudniej jest przypisać obserwację do $Y=1$. Analogicznie jeśli wartość $T$ będzie obniżana, coraz więcej obserwacji będzie przypisywanych do $Y=1$. 
+
+Zastanówmy się teraz nad dwoma miarami oceny skuteczności klasyfikatora binarnego:
+$$
+TruePositiveRate = \frac{TP}{FN + TP}
+$$
+
+$$
+FalsePositiveRate = \frac{FP}{TN + FP}
+$$
+
+Jeśli $T=0$, wtedy dla każdej obserwacji przypisywane jest $Y=1$, łatwo zaobserwować, że w takiej sytuacji $FPR = TPR = 1$
+
+Jeśli $T=1$, wtedy dla każdej obserwacji przypisywane jest $Y=0$, łatwo zaobserwować, że w takiej sytuacji $FPR = TPR = 0$
+
+Przechodząc z wartościami $T$ od 0 do 1 i obliczając dla kolejnych wartości $TPR$ i $FPR$, otrzymam punkty składające się na krzywą ROC. Pole pod wykresem krzywej ROC nazywane jest AUC (area under the curve) i wykorzystywane jest do oceny skuteczności modeli. 
+
+```{r ROC_Curve, message=FALSE}
+test_prob_logit = predict(model_logit, newdata = data_df, type = "response")
+test_prob_probit = predict(model_probit, newdata = data_df, type = "response")
+test_prob_cauchit = predict(model_cauchit, newdata = data_df, type = "response")
+test_prob_cloglog = predict(model_cloglog, newdata = data_df, type = "response")
+
+test_roc_logit = roc(data_df$success ~ test_prob_logit, plot = FALSE, print.auc = TRUE)
+test_roc_probit = roc(data_df$success ~ test_prob_probit, plot = FALSE, print.auc = TRUE)
+test_roc_cauchy = roc(data_df$success ~ test_prob_cauchit, plot = FALSE, print.auc = TRUE)
+test_roc_cloglog = roc(data_df$success ~ test_prob_cloglog, plot = FALSE, print.auc = TRUE)
+
+par(mfrow=c(2,2))
+plot(test_roc_logit, main=paste("Logit AIC: ", round(AIC(model_logit), 2)))
+plot(test_roc_probit, main=paste("Logit AIC: ", round(AIC(model_probit), 2)))
+plot(test_roc_cauchy, main=paste("Cauchy AIC: ", round(AIC(model_cauchit), 2)))
+plot(test_roc_cloglog, main=paste("CLogLog AIC: ", round(AIC(model_cloglog), 2)))
+```
+
+Wszystkie krzywe mają identyczny kształt pomimo różnych wartości AIC i Deviance. Wynika to z faktu, że każdy z modeli zachowuje porządek w tym sensie, że uporządkowanie obserwacji $X_i$ względem $p_i$ jest takie same dla każdego modelu. 
