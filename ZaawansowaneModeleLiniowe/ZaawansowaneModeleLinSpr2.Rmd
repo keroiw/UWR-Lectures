@@ -1,0 +1,111 @@
+---
+title: "ZaawansowaneModeleLinSpr2"
+author: "Błażej Wiórek"
+date: "3/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Zadanie 1
+
+### Podpunkt a)
+
+```{r data}
+data <- structure(list(numeracy = c(6.6, 7.1, 7.3, 7.5, 7.9, 7.9, 8,
+                                 8.2, 8.3, 8.3, 8.4, 8.4, 8.6, 8.7, 8.8, 8.8, 9.1, 9.1, 9.1, 9.3,
+                                 9.5, 9.8, 10.1, 10.5, 10.6, 10.6, 10.6, 10.7, 10.8, 11, 11.1,
+                                 11.2, 11.3, 12, 12.3, 12.4, 12.8, 12.8, 12.9, 13.4, 13.5, 13.6,
+                                 13.8, 14.2, 14.3, 14.5, 14.6, 15, 15.1, 15.7), 
+                    anxiety = c(13.8, 14.6, 17.4, 14.9, 13.4, 13.5, 13.8, 16.6, 13.5, 15.7, 13.6, 14,
+                                16.1, 10.5, 16.9, 17.4, 13.9, 15.8, 16.4, 14.7, 15, 13.3, 10.9,
+                                12.4, 12.9, 16.6, 16.9, 15.4, 13.1, 17.3, 13.1, 14, 17.7, 10.6,
+                                14.7, 10.1, 11.6, 14.2, 12.1, 13.9, 11.4, 15.1, 13, 11.3, 11.4,
+                                10.4, 14.4, 11, 14, 13.4), 
+                    success = c(0L, 0L, 0L, 1L, 0L, 1L, 0L, 0L, 1L, 0L, 1L, 1L, 0L, 1L, 0L, 0L, 0L, 0L, 0L, 1L, 0L, 0L,
+                                1L, 1L, 1L, 0L, 0L, 0L, 1L, 0L, 1L, 0L, 0L, 1L, 1L, 1L, 1L, 1L,
+                                1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L)), 
+                 .Names = c("numeracy", "anxiety", "success"), row.names = c(NA, -50L), class = "data.frame")
+data_df <- as.data.frame(data)
+```
+
+Na podstawie twierdzenia podanego na wykładzie, estymator parametrów regresji logistycznej jest asymptotycznie normalny tzn:
+$$
+\hat{\beta} \sim N(\beta, X^T S(\beta) X)^{-1})
+$$
+
+Twierdzenie umożlia obliczenie estymatora macierzy kowariancji wektora estymatorów w modelu regresji logistycznej. Wystarczy wstawić we wzrorze na macierz kowariancji $\hat{\beta}$ zamiast $\beta$. Otrzymuje wtedy: $X^T S(\hat{\beta}) X)^{-1}$ 
+```{r cov_mtrx}
+model1 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial)
+model1_summary <- summary(model1)
+p <- model1$fitted.values
+glm_cov_estimate <- vcov(model1)
+
+X <- cbind(intercept=1, data_df)
+X <- subset(X, select = -c(success))
+X <- as.matrix(X)
+W <- as.matrix(diag(fitted_values * (1-fitted_values)))
+
+manual_cov_estimate <- solve(t(X) %*% W %*% X)
+```
+
+```{r glm_cov_estimate}
+coefs_std  <- model1_summary$coefficients[, 2]
+cov_estimate_std <- sqrt(diag(manual_cov_estimate))
+std_comparison_df <- data.frame("GLM std" = coefs_std, "Cov std" = cov_estimate_std)
+std_comparison_df
+```
+
+### Podpunkt b)
+
+Chce przetestować hipotezę, że obie zmienne objaśniające nie mają wpływu na zmienną objaśnianą. Formalnie test mogę zapisać jako: $H0: \beta_{numeracy} = 0 \land \beta_{anxiety} = 0$ przy alternatywie $HA: \beta_{numeracy} \neq 0 \lor \beta_{anxiety} \neq 0$. Statystyka testowa ma postać: $\chi^2 = D(M1) - D(M2) \sim \chi^2_1$. $D(M1)$ oznacza deviance modelu w którym zachodzi $H0$, natomiast $D(M2)$ oznacza deviance modelu w którym zachodzi $HA$.
+
+```{r chi_sq_test}
+chi_sq_stat <- null_dev - resid_dev
+p_value <- pchisq(chi_sq_stat, df=1, lower.tail = FALSE)
+print(paste("p-value for predictors importance: ", p_value))
+```
+
+Tak niska p-wartość daje podstawy do odrzucenia hipotezy zerowej na rzecz hipotezy alternatywnej. 
+
+### Podpunkt c)
+
+```{r overdispersion_test}
+overdispersion_stat <- sum(residuals(model1, type = "deviance")^2)
+overdispersion_pval <- pchisq(overdispersion_stat, model1$df.residual, lower = F)
+print(paste("P-value connected with test for overdispersion: ", overdispersion_pval))
+```
+
+Wysoka p-wartość wskazuje, że brak podstaw do stwierdzenia występowania zjawiska najdmiernej dyspersji. 
+
+### Podpunkt d)
+
+d) Podaj definicję parametru ‘’epsilon’’ i jego wartość domyślną. Wykonaj ponownie
+obliczenia stosując wartości epsilon ze zbioru: 10^-1, 10^-2, 10^-3 i 10^-6. Porównaj
+liczbę iteracji i wartości estymatorów poszczególnych parametrów.
+
+Ze względu na to, że analityczne rozwiązanie równania $\nabla l(b) = 0$ (gdzie l(b) to funkcja likelihood względem parametrów modelu) nie istnieje, do obliczenia estymatorów współczynników modelu wykorzystywane są metody numeryczne. Parametr $\epsilon$ umożliwia kontrolę nad liczbą iteracji algorytmu. Zdefiniowany jest on jako $\frac{dev_{old} - dev}{|dev| + 0.1}$. Wartości występujące we wzorze to dewiancja aktualnego modelu oraz dewiancja modelu z poprzedniego kroku. Warto tutaj przypomnieć, że funkcja $l(b)$ jest funkcją wklęsłą co gwarantuje zbieżność algorytmu oraz $dev_{old} - dev \geq 0$. Wniosek jest taki, że zmniejszanie wartości $\epsilon$ spowoduje zwiększenie liczby iteracji ze względu na wymuszenie coraz dokładniejszej aproksymacji minimum globalnego. 
+
+```{r epsilon}
+epsilons <- c(1e-1, 1e-2, 1e-3, 1e-6)
+model_e1 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial, epsilon=epsilons[1])
+model_e2 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial, epsilon=epsilons[2])
+model_e3 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial, epsilon=epsilons[3])
+model_e4 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial, epsilon=epsilons[4])
+
+models <- list(model_e1, model_e2, model_e3, model_e4)
+epsilon_info_df <- as.data.frame(matrix(1:12, ncol=3))
+colnames(epsilon_info_df) <- c("Iteration", "Epsilon", "Deviance")
+
+for (i in 1:length(models)) {
+  model <- models[[i]]
+  epsilon_info_df[i, ] = c(model$iter, epsilons[i], model$dev)
+}
+epsilon_info_df
+```
+
+
+
+Zgodnie z oczekiwaniami zmniejszanie $\epsilon$ zwiększało liczbę iteracji oraz zmniejszało wartość statystyki deviance. Warto zauważyć, że różnice pomiędzy $\epsilon = 10^{-3}$ a $\epsilon = 10^{-6}$ są pomijalne. W praktyce dla dużych zbiorów danych zbyt duża liczba kroków algorytmu może w znaczący sposób wydłużyć czas uczenia. 
