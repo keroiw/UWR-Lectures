@@ -9,6 +9,8 @@ output: html_document
 library(ggplot2)
 library(dplyr)
 library(tidyr)
+library(gridExtra)
+library(MASS)
 
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -122,9 +124,21 @@ Fishera w punkcie beta i asymptotyczna macierz kowariancji estymatorów najwięk
 ```{r assignment2_setup}
 experiment_rep = 500
 
-experiment <- function(n, n_p) {
+matrix_rnorm <- function(n, n_p) {
   X <- rnorm(n * n_p, sd=sqrt(1/n))
   X <- matrix(X, nrow=n)
+}
+
+matrix_cov <- function(n ,n_p) {
+  mu <- rep(0, n_p)
+  S <- matrix(0.3, nrow=3, ncol=3)
+  diag(S) <- 1
+  mvrnorm(n, mu, 1/n * S)
+}
+
+experiment <- function(n, n_p, X) {
+  #X <- rnorm(n * n_p, sd=sqrt(1/n))
+  #X <- matrix(X, nrow=n)
   
   beta <- rep(3, n_p)
   logit <- X %*% beta
@@ -154,9 +168,9 @@ experiment <- function(n, n_p) {
   list(estimates=estimates_df, cov_matrix=cov_matrix)
 }  
 
-show_estimates_histogram <- function(estimates_df) {
+show_estimates_histogram <- function(estimates_df, cov_matrix, n) {
   models_info_long <- estimates_df %>% 
-                      select(starts_with("beta")) %>% 
+                      dplyr::select(starts_with("beta")) %>% 
                       gather(key='coefficient', value='coefficient_value')
 
   density_arg <- seq(min(models_info_long["coefficient_value"]), 
@@ -174,29 +188,31 @@ show_estimates_histogram <- function(estimates_df) {
              geom_density(col="red") +
              geom_line(data=coefs_density_long, aes(x=args, y=density), col="blue") +         
              facet_grid(. ~ coefficient) +
-             ggtitle("Regression coefficient estimates")
+             ggtitle(paste("Regression coefficient estimates n =", n))
   histogram
 }
 
-bias_estimation <- function(estimates_df) estimates_df %>% select(starts_with("beta"))-3
-variance_estimation <- function(estimates_df) estimates_df %>% select(starts_with("beta")) %>% var()
+bias_estimation <- function(estimates_df) estimates_df %>% dplyr::select(starts_with("beta"))-3
+variance_estimation <- function(estimates_df) estimates_df %>% dplyr::select(starts_with("beta")) %>% var()
 ```
 
 ### Podpunkt a)
 
-```{r histograms_coefficients}
-estimates_res <- experiment(400, 3)
-estimates_df <- estimates_res$estimates
-show_estimates_histogram(estimates_df)
+```{r histograms_coefficients_1}
+estimates_res_400 <- experiment(400, 3, matrix_rnorm(400, 3))
+estimates_df_400 <- estimates_res_400$estimates
+cov_matrix_400 <- estimates_res_400$cov_matrix
+histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
+histogram_400
 ```
 
 ### Podpunkt b)
 
 b) Wyestymuj obciążenie estymatorów beta1, beta2 i beta3.
 
-```{r bias_estimation}
-estimated_bias <- bias_estimation(estimates_df)
-summary(estimated_bias)
+```{r bias_estimation_1}
+estimated_bias_400 <- bias_estimation(estimates_df_400)
+summary(estimated_bias_400)
 ```
 
 ### Podpunkt c)
@@ -204,16 +220,94 @@ summary(estimated_bias)
 c) Wyestymuj macierz kowariancji wektora estymatorów (beta1, beta2, beta3) i porównaj z
 asymptotyczną macierzą kowariancji.
 
-```{r variance_estimated}
-variance_estimation(estimates_df)
+```{r variance_estimated_1}
+variance_estimation(estimates_df_400)
 ```
 
-```{r true_variance}
-estimates_res$cov_matrix
+```{r true_variance_1}
+estimates_res_400$cov_matrix
+```
+
+## Zadanie 3
+
+### Podpunkt a)
+
+```{r histograms_coefficients_2}
+estimates_res_100 <- experiment(100, 3, matrix_rnorm(100, 3))
+estimates_df_100 <- estimates_res_100$estimates
+cov_matrix_100 <- estimates_res_100$cov_matrix
+histogram_100 <- show_estimates_histogram(estimates_df_100, cov_matrix_100, 100)
+
+grid.arrange(histogram_100, histogram_400, nrow=2)
+```
+
+### Podpunkt b)
+
+```{r bias_estimation_2}
+estimated_bias_100 <- bias_estimation(estimates_df_100)
+summary(estimated_bias_100)
+```
+
+### Podpunkt c)
+
+```{r variance_estimated_2}
+variance_estimation(estimates_df_100)
+```
+
+```{r true_variance_2}
+estimates_res_100$cov_matrix
+```
+
+### Zadanie 4
+
+## Podpunkt a) (n=400)
+
+```{r histograms_coefficients_3}
+estimates_res_400 <- experiment(400, 3, matrix_cov(400, 3))
+estimates_df_400 <- estimates_res_400$estimates
+cov_matrix_400 <- estimates_res_400$cov_matrix
+histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
+histogram_400
+```
+
+```{r bias_estimation_3}
+estimated_bias_400 <- bias_estimation(estimates_df_400)
+summary(estimated_bias_400)
+```
+
+```{r variance_estimated_3}
+variance_estimation(estimates_df_400)
+```
+
+```{r true_variance_3}
+estimates_res_400$cov_matrix
 ```
 
 
+## Podpunkt b) (n=100)
 
+
+```{r histograms_coefficients_4}
+estimates_res_100 <- experiment(100, 3, matrix_cov(100, 3))
+estimates_df_100 <- estimates_res_100$estimates
+cov_matrix_100 <- estimates_res_100$cov_matrix
+histogram_100 <- show_estimates_histogram(estimates_df_100, cov_matrix_100, 100)
+
+grid.arrange(histogram_100, histogram_400, nrow=2)
+```
+
+```{r bias_estimation_4}
+estimated_bias_100 <- bias_estimation(estimates_df_100)
+summary(estimated_bias_100)
+```
+
+```{r variance_estimated_4}
+variance_estimation(estimates_df_100)
+```
+
+```{r true_variance_4}
+estimates_res_100$cov_matrix
+```
 
 
 
