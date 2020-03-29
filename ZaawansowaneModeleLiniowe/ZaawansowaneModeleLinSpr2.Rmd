@@ -6,6 +6,10 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -109,3 +113,96 @@ epsilon_info_df
 
 
 Zgodnie z oczekiwaniami zmniejszanie $\epsilon$ zwiększało liczbę iteracji oraz zmniejszało wartość statystyki deviance. Warto zauważyć, że różnice pomiędzy $\epsilon = 10^{-3}$ a $\epsilon = 10^{-6}$ są pomijalne. W praktyce dla dużych zbiorów danych zbyt duża liczba kroków algorytmu może w znaczący sposób wydłużyć czas uczenia. 
+
+## Zadanie 2
+
+Wygeneruj macierz X wymiaru n=400, p=3, której elementy są zmiennymi losowymi z
+rozkładu N(0, sigma^2=1/n). Załóżmy, że binarny wektor odpowiedzi jest wygenerowany
+zgodnie z modelem regresji logistycznej z wektorem beta=(3,3,3). Wyznacz macierz informacji
+Fishera w punkcie beta i asymptotyczna macierz kowariancji estymatorów największej
+wiarogodności.
+Nastepnie 500 razy wygeneruj wektor odpowiedzi zgodnie z powyższym modelem i
+a) Narysuj histogramy estymatorów beta1, beta2 i beta3 i ‘residual deviance’ i porównaj z
+ich rozkładami asymptotycznymi.
+b) Wyestymuj obciążenie estymatorów beta1, beta2 i beta3.
+c) Wyestymuj macierz kowariancji wektora estymatorów (beta1, beta2, beta3) i porównaj z
+asymptotyczną macierzą kowariancji.
+
+```{r assignment2_setup}
+n <- 400
+p <- 3
+X <- rnorm(n * p, sd=sqrt(1/n))
+X <- matrix(X, nrow=n)
+
+beta <- c(3, 3, 3)
+logit <- X %*% beta
+p <- exp(logit) / (1 + exp(logit))
+
+S <- diag(as.vector(p*(1-p)))
+fisher_matrix <- t(X) %*% S %*% X
+cov_matrix <- solve(fisher_matrix)
+predictors <- c("beta1", "beta2", "beta3")
+colnames(cov_matrix) <- predictors
+rownames(cov_matrix) <- predictors
+
+experiment_rep = 500
+collected_features <- c(predictors, "resid_dev")
+models_info_df <- matrix(1:experiment_rep, nrow=experiment_rep, ncol = length(collected_features))
+models_info_df <- as.data.frame(models_info_df)
+colnames(models_info_df) <- collected_features
+
+for (i in 1:500) {
+  Y <- rbinom(400, 1, p)
+  model <- glm(Y~X - 1, family=binomial)
+  models_info_df[i, 1:3] <- model$coefficients
+  models_info_df[i, 4] <- model$dev
+}
+```
+
+### Podpunkt a)
+
+```{r histograms_coefficients}
+make_histogram <- function(df, col) {
+  histogram <- ggplot(models_info_df, aes(x=col)) + 
+                      geom_histogram(aes(y=..density..), colour="black", fill="white") + 
+                      geom_density(alpha=.2, fill="#FF6666")
+  histogram
+}
+
+models_info_long <- models_info_df %>% 
+                    select(starts_with("beta")) %>% 
+                    gather(key='coefficient', value='coefficient_value')
+
+density_arg <- seq(min(models_info_long["coefficient_value"]), 
+                   max(models_info_long["coefficient_value"]), 
+                   by=0.1)
+coefs_density <- data.frame(beta1=dnorm(density_arg, mean=3, sd=sqrt(cov_matrix[1,1])),
+                            beta2=dnorm(density_arg, mean=3, sd=sqrt(cov_matrix[2,2])),
+                            beta3=dnorm(density_arg, mean=3, sd=sqrt(cov_matrix[3,3])))
+coefs_density_long <- coefs_density %>% gather(key='coefficient', value='density')
+coefs_density_long["args"] = rep(density_arg, 3)
+
+
+histogram <- ggplot(models_info_long, aes(x=coefficient_value)) + 
+             geom_histogram(aes(y=..density..), colour="black", fill="white") + 
+             geom_density(col="red") +
+             geom_line(data=coefs_density_long, aes(x=args, y=density), col="blue") +         
+             facet_grid(. ~ coefficient)
+histogram
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
