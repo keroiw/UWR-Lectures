@@ -1,0 +1,186 @@
+---
+title: "BigDataAssignment1"
+author: "Błażej Wiórek"
+date: "3/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+```
+
+## Zadanie 1
+
+```{r markov_approximation}
+create_approximation <- function(t) {
+    cdf_t <- pnorm(t)
+    pdf_t <- dnorm(t)
+    g1 <- 1-cdf_t 
+    g2 <- pdf_t/t 
+    g3 <- dnorm(t) * (t / (1 + t^2))
+    data.frame(t=t, g1=g1, g2=g2, g3=g3, `g1/g2`=g1/g2, `g1/g3`=g1/g3)
+}
+
+t <- seq(0.3, 3, length.out = 500)
+markov_bounds_df <- dplyr::bind_rows(lapply(t, create_approximation))
+markov_bounds_df.markov_long <- markov_bounds_df %>% 
+                                select(1:4) %>% 
+                                gather(key="bounding_function", 
+                                       value="function_value", 
+                                       c("g1", "g2", "g3"))
+
+markov_bounds_plot <- ggplot(markov_bounds_df.markov_long, aes(x=t, y=function_value, color=bounding_function)) + 
+                      geom_point(alpha=0.5) +
+                      scale_color_brewer(palette="YlOrBr") + 
+                      ggtitle("Markov approximation")
+markov_bounds_plot
+```
+
+```{r markov_approximation_2}
+markov_bounds_df.ratio_long <- markov_bounds_df %>% 
+                               select(c(1,5,6)) %>% 
+                               gather(key="function_ratio", 
+                                      value="ratio_value", 
+                                      c("g1.g2", "g1.g3"))
+
+ratio_bounds_plot <- ggplot(markov_bounds_df.ratio_long, aes(x=t, y=ratio_value, color=function_ratio)) + 
+                     geom_point(alpha=0.5) +
+                     scale_color_brewer(palette="YlOrBr") + 
+                     ggtitle("Markov approximation ratio")
+ratio_bounds_plot 
+```
+
+## Zadanie 2
+
+```{r assignment_2}
+create_row <- function(p, alpha) {
+    g1 <- qnorm(1 - alpha / (2 * p))
+    cp <- sqrt(2 * log(p))
+    B <- 2*log(2*p / alpha) - log(2 * pi)
+    g2 <- sqrt(B - log(B))
+    data.frame(p=p, alpha=alpha, g1=g1, cp=cp, g2=g2, `g1/g2`=g1/g2, `g1/cp`=g1/cp)
+}
+
+p <- seq(from=10^2, to=10^9, length.out=1000)
+alpha <- c(0.01, 0.1, 0.5)
+alpha <- rep(alpha, each=length(p))
+p <- rep(p, 3)
+
+df <- dplyr::bind_rows(mapply(create_row, p=p, alpha=alpha, SIMPLIFY = FALSE))
+df.raw_functions <- df %>% select(1:5) %>% gather(key="f", value="value", c("g1", "cp", "g2"))
+df.ratios <- df %>% select(c(1,2,6,7)) %>% gather(key="f", value="value", c("g1.g2", "g1.cp"))
+```
+
+```{r raw_functions_plot}
+raw_functions_plot <- ggplot(df.raw_functions, aes(x=p, y=value, color=f)) + 
+                      geom_point(alpha=0.3) +
+                      scale_color_brewer(palette="YlOrBr") +
+                      scale_x_log10() +
+                      facet_grid(.~alpha)
+raw_functions_plot
+```
+
+```{r ratios_plot}
+ratios_plot <- ggplot(df.ratios, aes(x=p, y=value, color=f)) + 
+    geom_point(alpha=0.3) + 
+    scale_color_brewer(palette="YlOrBr") +
+    scale_x_log10() +
+    facet_grid(.~alpha)
+
+ratios_plot
+```
+
+## Zadanie 3
+
+
+```{r assignment_3}
+create_row <- function(k, p, trajectory_id) {
+    M_k <- max(p[1:k])
+    g_k <- sqrt(2 * log(k))
+    data.frame(k=k, M_k=M_k, `M_k/g_k` = M_k/g_k, trajectory=trajectory_id)
+}
+
+create_k <- function(max_power) {10 ^ (1:max_power)}
+
+create_trajectories <- function(k_v) {
+    trajectories <- list()
+    for (i in 1:5) {
+        p = rnorm(10^length(k_v))
+        trajectory_id <- paste("T", i)
+        trajectories[[i]] = dplyr::bind_rows(lapply(k_v, create_row, p=p, trajectory_id=trajectory_id))
+    }
+    dplyr::bind_rows(trajectories)
+    
+}
+
+k_v <- 10^(1:5)
+trajectories <- create_trajectories(k_v)
+g_k_df = data.frame(x=k_v, g_k=sqrt(2 * log(k_v)))
+```
+
+```{r plot_trajectories}
+t_plot <- ggplot() + 
+    geom_point(data=trajectories, aes(x=k, y=M_k, color=trajectory)) + 
+    geom_point(data=g_k_df, aes(x=x, y=g_k), shape=25, color="red", size=3) +
+    scale_x_log10() 
+plot(t_plot)
+```
+
+```{r rations_plot_2}
+gk_mk_plot <- ggplot(trajectories, aes(x=k, y=M_k.g_k, color=trajectory)) + geom_point() + scale_x_log10()
+plot(gk_mk_plot)
+```
+
+## Zadanie 4
+
+```{r test_comparison}
+bonferroni_test <- function(X, alpha) {
+    n <- length(X)
+    bonferroni_thresh <- qnorm(1 - alpha / (2 * n))
+    # TRUE if H0 rejected
+    sum(X > bonferroni_thresh) > 0
+}
+
+chi_sqare_test <- function(X, alpha) {
+    n <- length(X)
+    T_stat <- abs((sum(X^2) - n)/sqrt(2*n))
+    # TRUE if H0 rejected
+    T_stat > qnorm(1 - alpha/2)
+}
+    
+test_sparse <- function(i, sample_size, alpha) {
+    X <- rnorm(sample_size)
+    X[1] <- 1.2 * sqrt(2* log(sample_size))
+    bonferroni <- bonferroni_test(X, alpha)
+    chi_square <- chi_sqare_test(X, alpha)
+    data.frame(bonferroni=bonferroni, chi_square=chi_square)
+}
+
+test_dense <- function(i, sample_size, non_zero_mu, alpha) {
+    X <- rnorm(sample_size)
+    X[1:non_zero_mu] <- 0.15 * sqrt(2 * log(sample_size))
+    bonferroni <- bonferroni_test(X, alpha)
+    chi_square <- chi_sqare_test(X, alpha)
+    data.frame(bonferroni=bonferroni, chi_square=chi_square)
+}
+
+sample_size = 1000
+rep = 5000
+sparse_res <- dplyr::bind_rows(lapply(1:rep, test_sparse, sample_size=sample_size, alpha=0.05))
+dense_res <- dplyr::bind_rows(lapply(1:rep, test_dense, sample_size=sample_size, non_zero_mu=1000, alpha=0.05))
+```
+
+```{r sparse_scenario}
+sparse_power <- colSums(sparse_res)/rep
+sparse_power
+```
+
+```{r dense_scenario}
+dense_power <- colSums(dense_res)/rep
+dense_power
+```
