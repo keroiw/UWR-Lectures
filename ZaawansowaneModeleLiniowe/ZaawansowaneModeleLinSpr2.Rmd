@@ -1,5 +1,10 @@
 ---
 title: "ZaawansowaneModeleLinSpr2"
+knit: (function(input_file, encoding) {
+  out_dir <- '../docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'Modele2.html'))})
 author: "Błażej Wiórek"
 date: "3/28/2020"
 output: html_document
@@ -13,6 +18,8 @@ library(gridExtra)
 library(MASS)
 
 knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(47)
 ```
 
 ## Zadanie 1
@@ -42,7 +49,7 @@ $$
 \hat{\beta} \sim N(\beta, X^T S(\beta) X)^{-1})
 $$
 
-Twierdzenie umożlia obliczenie estymatora macierzy kowariancji wektora estymatorów w modelu regresji logistycznej. Wystarczy wstawić we wzrorze na macierz kowariancji $\hat{\beta}$ zamiast $\beta$. Otrzymuje wtedy: $X^T S(\hat{\beta}) X)^{-1}$ 
+Twierdzenie umożliwa obliczenie estymatora macierzy kowariancji wektora estymatorów w modelu regresji logistycznej. Wystarczy wstawić we wzorze na macierz kowariancji $\hat{\beta}$ zamiast $\beta$. Otrzymuje wtedy: $X^T S(\hat{\beta}) X)^{-1}$ 
 ```{r cov_mtrx}
 model1 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial)
 model1_summary <- summary(model1)
@@ -52,7 +59,7 @@ glm_cov_estimate <- vcov(model1)
 X <- cbind(intercept=1, data_df)
 X <- subset(X, select = -c(success))
 X <- as.matrix(X)
-W <- as.matrix(diag(fitted_values * (1-fitted_values)))
+W <- as.matrix(diag(p*(1-p)))
 
 manual_cov_estimate <- solve(t(X) %*% W %*% X)
 ```
@@ -69,7 +76,7 @@ std_comparison_df
 Chce przetestować hipotezę, że obie zmienne objaśniające nie mają wpływu na zmienną objaśnianą. Formalnie test mogę zapisać jako: $H0: \beta_{numeracy} = 0 \land \beta_{anxiety} = 0$ przy alternatywie $HA: \beta_{numeracy} \neq 0 \lor \beta_{anxiety} \neq 0$. Statystyka testowa ma postać: $\chi^2 = D(M1) - D(M2) \sim \chi^2_1$. $D(M1)$ oznacza deviance modelu w którym zachodzi $H0$, natomiast $D(M2)$ oznacza deviance modelu w którym zachodzi $HA$.
 
 ```{r chi_sq_test}
-chi_sq_stat <- null_dev - resid_dev
+chi_sq_stat <- model1$null.deviance - model1$deviance
 p_value <- pchisq(chi_sq_stat, df=1, lower.tail = FALSE)
 print(paste("p-value for predictors importance: ", p_value))
 ```
@@ -78,6 +85,11 @@ Tak niska p-wartość daje podstawy do odrzucenia hipotezy zerowej na rzecz hipo
 
 ### Podpunkt c)
 
+Nadmierna dyspersja to sytuacja w której wariancja założonego rozkładu jest mniejsza niż wariancja obserwowana w danych. W przypadku regresji logistycznej mogę mówić o nadmiernej dyspersji gdy obserwowana wariancja $y_i$ jest większa niż $Var[\hat{p}] = \frac{p(1-p)}{n}$. Istnieją dwie podstawowe przyczyny występowania tego zjawiska
+1. Prawdopodobieństwo, że Y=1 zmienia się w kolejnych próbach
+2. Prawdopodobieństwa w poszczególnych próbach nie spełniają warunku niezależności. 
+
+Test na podstawie którego można wnioskować o nadmiernej dyspersji to test dopasowania modelu obliczany na podstawie statystyki Pearsona, residual deviance i liczby stopni swobody residual deviance.
 ```{r overdispersion_test}
 overdispersion_stat <- sum(residuals(model1, type = "deviance")^2)
 overdispersion_pval <- pchisq(overdispersion_stat, model1$df.residual, lower = F)
@@ -113,7 +125,6 @@ epsilon_info_df
 ```
 
 
-
 Zgodnie z oczekiwaniami zmniejszanie $\epsilon$ zwiększało liczbę iteracji oraz zmniejszało wartość statystyki deviance. Warto zauważyć, że różnice pomiędzy $\epsilon = 10^{-3}$ a $\epsilon = 10^{-6}$ są pomijalne. W praktyce dla dużych zbiorów danych zbyt duża liczba kroków algorytmu może w znaczący sposób wydłużyć czas uczenia. 
 
 ## Zadanie 2
@@ -121,6 +132,7 @@ Zgodnie z oczekiwaniami zmniejszanie $\epsilon$ zwiększało liczbę iteracji or
 Wygeneruj macierz X wymiaru n=400, p=3, której elementy są zmiennymi losowymi z rozkładu N(0, sigma^2=1/n). Załóżmy, że binarny wektor odpowiedzi jest wygenerowany zgodnie z modelem regresji logistycznej z wektorem beta=(3,3,3). Wyznacz macierz informacji
 Fishera w punkcie beta i asymptotyczna macierz kowariancji estymatorów największej wiarogodności. Nastepnie 500 razy wygeneruj wektor odpowiedzi zgodnie z powyższym modelem. 
 
+W związku z tym, że dane generowane są zgodnie z określonym schematem, model nie uwzględnia interceptu.
 ```{r assignment2_setup}
 experiment_rep = 500
 
@@ -129,7 +141,7 @@ matrix_rnorm <- function(n, n_p) {
   X <- matrix(X, nrow=n)
 }
 
-matrix_cov <- function(n ,n_p) {
+cov_matrix <- function(n ,n_p) {
   mu <- rep(0, n_p)
   S <- matrix(0.3, nrow=3, ncol=3)
   diag(S) <- 1
@@ -137,9 +149,6 @@ matrix_cov <- function(n ,n_p) {
 }
 
 experiment <- function(n, n_p, X) {
-  #X <- rnorm(n * n_p, sd=sqrt(1/n))
-  #X <- matrix(X, nrow=n)
-  
   beta <- rep(3, n_p)
   logit <- X %*% beta
   p <- exp(logit) / (1 + exp(logit))
@@ -192,11 +201,25 @@ show_estimates_histogram <- function(estimates_df, cov_matrix, n) {
   histogram
 }
 
-bias_estimation <- function(estimates_df) estimates_df %>% dplyr::select(starts_with("beta"))-3
-variance_estimation <- function(estimates_df) estimates_df %>% dplyr::select(starts_with("beta")) %>% var()
+bias_estimation <- function(estimates_df) estimates_df %>% 
+                                          dplyr::select(starts_with("beta")) %>% 
+                                          mutate_all(function(x) {x-3}) %>% 
+                                          colMeans()
+
+variance_estimation <- function(estimates_df) estimates_df %>% 
+                       dplyr::select(starts_with("beta")) %>% 
+                       var()
 ```
 
 ### Podpunkt a)
+
+Narysuj histogramy estymatorów beta1, beta2 i beta3 i ‘residual deviance’ i porównaj z ich rozkładami asymptotycznymi.
+
+Zgodnie z twierdzeniem podanym na wykładzie wiem, że wektor estymtorów w regresji logistycznej jest asymptotycznie normalny:
+$$
+\hat{\beta} \xrightarrow{D} N(\beta, X^TS(\beta)X)
+$$
+przy czym $S(\beta)$ to macierz diagonalna mająca na przekątnej wartości postaci $p_i(1-p_i)$, $p_i = P(Y=1|X_i)$. Ze względu na schemat przeprowadzonego eksperymentu spodziewam się, że poszczególne współczynniki regresji otrzymane w kolejnych powtórzeniach powinny układać się zgodnie z rozkładem $N(3, 1)$. 
 
 ```{r histograms_coefficients_1}
 estimates_res_400 <- experiment(400, 3, matrix_rnorm(400, 3))
@@ -206,13 +229,17 @@ histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
 histogram_400
 ```
 
+Niebieska linia na powyższym wykresie przedstawia gęstość rozkładu $N(3, 1)$. Można zaobserwować, że przybliżona linia gęstości rozkładu (kolor czerwony) reprezentująca ciągłą wersje histogramu odbiega w niewielkim stopniu od rozkładu asymptotycznego. 
+
 ### Podpunkt b)
 
 b) Wyestymuj obciążenie estymatorów beta1, beta2 i beta3.
 
+Obiążenie estymatorów obliczone zostało jako średnia różnica pomiędzy $\beta = 3$ a estymatorem $\hat{\beta}$. Jako, że $\hat{\beta}$ jest estymatorem nieobciążonym oczekuje się, że wartość ta będzie malała wraz ze wzrostem liczby obserwacji (n).
+
 ```{r bias_estimation_1}
 estimated_bias_400 <- bias_estimation(estimates_df_400)
-summary(estimated_bias_400)
+estimated_bias_400
 ```
 
 ### Podpunkt c)
@@ -220,17 +247,24 @@ summary(estimated_bias_400)
 c) Wyestymuj macierz kowariancji wektora estymatorów (beta1, beta2, beta3) i porównaj z
 asymptotyczną macierzą kowariancji.
 
+Wyestymwana macierz kowariancji:
 ```{r variance_estimated_1}
 variance_estimation(estimates_df_400)
 ```
 
+Prawdziwa macierz kowariancji:
 ```{r true_variance_1}
 estimates_res_400$cov_matrix
 ```
 
+Wartości 
+
+
 ## Zadanie 3
 
 ### Podpunkt a)
+
+Zmniejszenie liczby obserwacji na podstawie których wystymowane są współczynniki regresji logistycznej powoduje zwiększenie błędy estymacji prawdziwych wartości współczynników $\beta$. Sytuacja ta jest w pewnym stopniu obserwowalna na poniższym zestawieniu histogamów, jednak zostanie uwypuklona w kolejnych podpunktach.
 
 ```{r histograms_coefficients_2}
 estimates_res_100 <- experiment(100, 3, matrix_rnorm(100, 3))
@@ -243,27 +277,34 @@ grid.arrange(histogram_100, histogram_400, nrow=2)
 
 ### Podpunkt b)
 
+
 ```{r bias_estimation_2}
 estimated_bias_100 <- bias_estimation(estimates_df_100)
-summary(estimated_bias_100)
+bias_summary <- dplyr::bind_rows(estimated_bias_400, estimated_bias_100) %>% as.data.frame()
+rownames(bias_summary) = c("n=400", "n=100")
+bias_summary
 ```
 
 ### Podpunkt c)
 
+Wyestymwana macierz kowariancji:
 ```{r variance_estimated_2}
 variance_estimation(estimates_df_100)
 ```
 
+Prawdziwa macierz kowariancji:
 ```{r true_variance_2}
 estimates_res_100$cov_matrix
 ```
 
 ### Zadanie 4
 
+W przeciwieństwie do poprzedniego zadania, zbiór treningowy został wygenerowany w taki sposób, że istnieje korelacja pomiędzy poszczególnymi predyktorami. Zjawisko to znane jest jako multicollinearity i stanowi efekt niepożądany. 
+
 ## Podpunkt a) (n=400)
 
 ```{r histograms_coefficients_3}
-estimates_res_400 <- experiment(400, 3, matrix_cov(400, 3))
+estimates_res_400 <- experiment(400, 3, cov_matrix(400, 3))
 estimates_df_400 <- estimates_res_400$estimates
 cov_matrix_400 <- estimates_res_400$cov_matrix
 histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
@@ -271,8 +312,8 @@ histogram_400
 ```
 
 ```{r bias_estimation_3}
-estimated_bias_400 <- bias_estimation(estimates_df_400)
-summary(estimated_bias_400)
+estimated_bias_400_cov <- bias_estimation(estimates_df_400)
+estimated_bias_400_cov
 ```
 
 ```{r variance_estimated_3}
@@ -288,7 +329,7 @@ estimates_res_400$cov_matrix
 
 
 ```{r histograms_coefficients_4}
-estimates_res_100 <- experiment(100, 3, matrix_cov(100, 3))
+estimates_res_100 <- experiment(100, 3, cov_matrix(100, 3))
 estimates_df_100 <- estimates_res_100$estimates
 cov_matrix_100 <- estimates_res_100$cov_matrix
 histogram_100 <- show_estimates_histogram(estimates_df_100, cov_matrix_100, 100)
@@ -297,8 +338,8 @@ grid.arrange(histogram_100, histogram_400, nrow=2)
 ```
 
 ```{r bias_estimation_4}
-estimated_bias_100 <- bias_estimation(estimates_df_100)
-summary(estimated_bias_100)
+estimated_bias_100_cov <- bias_estimation(estimates_df_100)
+estimated_bias_100_cov
 ```
 
 ```{r variance_estimated_4}
