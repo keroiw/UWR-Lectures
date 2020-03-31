@@ -1,5 +1,5 @@
 ---
-title: "ZaawansowaneModeleLinSpr2"
+title: "Zaawansowane Modele Liniowe Sprawozdanie 2"
 knit: (function(input_file, encoding) {
   out_dir <- '../docs';
   rmarkdown::render(input_file,
@@ -46,10 +46,10 @@ data_df <- as.data.frame(data)
 
 Na podstawie twierdzenia podanego na wykładzie, estymator parametrów regresji logistycznej jest asymptotycznie normalny tzn:
 $$
-\hat{\beta} \sim N(\beta, X^T S(\beta) X)^{-1})
+\hat{\beta} \sim N(\beta, (X^T S(\beta) X)^{-1})
 $$
 
-Twierdzenie umożliwa obliczenie estymatora macierzy kowariancji wektora estymatorów w modelu regresji logistycznej. Wystarczy wstawić we wzorze na macierz kowariancji $\hat{\beta}$ zamiast $\beta$. Otrzymuje wtedy: $X^T S(\hat{\beta}) X)^{-1}$ 
+Twierdzenie umożliwa obliczenie estymatora macierzy kowariancji wektora estymatorów w modelu regresji logistycznej. Wystarczy wstawić we wzorze na macierz kowariancji $\hat{\beta}$ zamiast $\beta$. Otrzymuje wtedy: $(X^T S(\hat{\beta}) X)^{-1}$ 
 ```{r cov_mtrx}
 model1 <- glm(success ~ numeracy + anxiety, data=data_df, family=binomial)
 model1_summary <- summary(model1)
@@ -85,7 +85,8 @@ Tak niska p-wartość daje podstawy do odrzucenia hipotezy zerowej na rzecz hipo
 
 ### Podpunkt c)
 
-Nadmierna dyspersja to sytuacja w której wariancja założonego rozkładu jest mniejsza niż wariancja obserwowana w danych. W przypadku regresji logistycznej mogę mówić o nadmiernej dyspersji gdy obserwowana wariancja $y_i$ jest większa niż $Var[\hat{p}] = \frac{p(1-p)}{n}$. Istnieją dwie podstawowe przyczyny występowania tego zjawiska
+Nadmierna dyspersja to sytuacja w której wariancja założonego rozkładu jest mniejsza niż wariancja obserwowana w danych. W przypadku regresji logistycznej mogę mówić o nadmiernej dyspersji gdy obserwowana wariancja $y_i$ jest większa niż $Var[\hat{p}] = \frac{p(1-p)}{n}$. Istnieją dwie podstawowe przyczyny występowania tego zjawiska:
+
 1. Prawdopodobieństwo, że Y=1 zmienia się w kolejnych próbach
 2. Prawdopodobieństwa w poszczególnych próbach nie spełniają warunku niezależności. 
 
@@ -143,7 +144,7 @@ matrix_rnorm <- function(n, n_p) {
 
 cov_matrix <- function(n ,n_p) {
   mu <- rep(0, n_p)
-  S <- matrix(0.3, nrow=3, ncol=3)
+  S <- matrix(0.3, nrow=n_p, ncol=n_p)
   diag(S) <- 1
   mvrnorm(n, mu, 1/n * S)
 }
@@ -156,7 +157,12 @@ experiment <- function(n, n_p, X) {
   S <- diag(as.vector(p*(1-p)))
   fisher_matrix <- t(X) %*% S %*% X
   cov_matrix <- solve(fisher_matrix)
-  predictors <- c("beta1", "beta2", "beta3")
+  
+  predictors <- c()
+  for (i in 1:n_p) {
+    predictors <- c(predictors, paste("beta", i, sep=''))
+  }
+  
   colnames(cov_matrix) <- predictors
   rownames(cov_matrix) <- predictors
 
@@ -170,14 +176,15 @@ experiment <- function(n, n_p, X) {
   for (i in 1:experiment_rep) {
     Y <- rbinom(n, 1, p)
     model <- glm(Y~X - 1, family=binomial)
-    estimates_df[i, 1:3] <- model$coefficients
-    estimates_df[i, 4] <- model$dev
+    estimates_df[i, 1:n_p] <- model$coefficients
+    estimates_df[i, n_p+1] <- model$deviance
   }
   
   list(estimates=estimates_df, cov_matrix=cov_matrix)
 }  
 
-show_estimates_histogram <- function(estimates_df, cov_matrix, n) {
+show_estimates_histogram <- function(estimates_df, cov_matrix, n, n_hist=3) {
+    estimates_df <- estimates_df %>% dplyr::select(c(1:n_hist, "resid_dev"))
   models_info_long <- estimates_df %>% 
                       dplyr::select(starts_with("beta")) %>% 
                       gather(key='coefficient', value='coefficient_value')
@@ -201,6 +208,21 @@ show_estimates_histogram <- function(estimates_df, cov_matrix, n) {
   histogram
 }
 
+show_residual_deviance <- function(estimates_df, n, p) {
+  density_arg <- seq(min(n-p-10, min(estimates_df["resid_dev"])), 
+                     max(estimates_df["resid_dev"]), 
+                     by=0.1)
+  density <- dchisq(density_arg, n-p)
+  density_df <- data.frame(resid_dev=density_arg, density=density)
+  
+  estimates_df["density"] = dchisq(unlist(estimates_df["resid_dev"]), n-p)
+  histogram <- ggplot(estimates_df, aes(x=resid_dev)) + 
+               geom_histogram(aes(y=..density..), colour="black", fill="white") +
+               geom_line(data=density_df, aes(x=resid_dev, y=density), col="blue") + 
+               ggtitle("Residual deviance asymptotics")
+  histogram
+}
+
 bias_estimation <- function(estimates_df) estimates_df %>% 
                                           dplyr::select(starts_with("beta")) %>% 
                                           mutate_all(function(x) {x-3}) %>% 
@@ -217,7 +239,7 @@ Narysuj histogramy estymatorów beta1, beta2 i beta3 i ‘residual deviance’ i
 
 Zgodnie z twierdzeniem podanym na wykładzie wiem, że wektor estymtorów w regresji logistycznej jest asymptotycznie normalny:
 $$
-\hat{\beta} \xrightarrow{D} N(\beta, X^TS(\beta)X)
+\hat{\beta} \xrightarrow{D} N(\beta, (X^TS(\beta)X)^{-1})
 $$
 przy czym $S(\beta)$ to macierz diagonalna mająca na przekątnej wartości postaci $p_i(1-p_i)$, $p_i = P(Y=1|X_i)$. Ze względu na schemat przeprowadzonego eksperymentu spodziewam się, że poszczególne współczynniki regresji otrzymane w kolejnych powtórzeniach powinny układać się zgodnie z rozkładem $N(3, 1)$. 
 
@@ -230,6 +252,23 @@ histogram_400
 ```
 
 Niebieska linia na powyższym wykresie przedstawia gęstość rozkładu $N(3, 1)$. Można zaobserwować, że przybliżona linia gęstości rozkładu (kolor czerwony) reprezentująca ciągłą wersje histogramu odbiega w niewielkim stopniu od rozkładu asymptotycznego. 
+
+Deviance ma asymptotyczny rozkład postaci: $ResidualDeviance \sim \chi^2_{n-p}$. Na wykresie można zaobserować, że wygenerowane wartości residual deviance znacznie różnią się od rozkładu asymptotycznego z czego mogę wnioskować o tym, że model nie był w stanie dopasować się do danych. 
+```{r resid_deviance_1}
+show_residual_deviance(estimates_df_400, 400, 3) 
+```
+
+Warto zastanowić się nieco bardziej nad tym problemem. Z histogramów wynika, że model jest w stanie określić poprawne wartości współczynników regresji, jednak współczynniki te mają relatywnie małą istotność. Poniżej zamieszczone zostało podsumowanie dla modelu dopasowanego w taki sposób w jaki dopasowywane są modele w pętli wykonywanej 500 razy. Można zaobserwować, że istotność poszczególnych predyktorów jest niska oraz istnieje niewielka różnica pomiędzy null deviance i residual deviance. 
+```{r deviance_analysis}
+X <- matrix_rnorm(400, 3)
+beta <- rep(3, 3)
+logit <- X %*% beta
+p <- exp(logit) / (1 + exp(logit))
+  
+Y <- rbinom(400, 1, p)
+model <- glm(Y~X - 1, family=binomial)
+summary(model)
+```
 
 ### Podpunkt b)
 
@@ -247,24 +286,26 @@ estimated_bias_400
 c) Wyestymuj macierz kowariancji wektora estymatorów (beta1, beta2, beta3) i porównaj z
 asymptotyczną macierzą kowariancji.
 
-Wyestymwana macierz kowariancji:
+Wyestymowana macierz kowariancji:
 ```{r variance_estimated_1}
-variance_estimation(estimates_df_400)
+est_var_400 <-variance_estimation(estimates_df_400)
+est_var_400
 ```
 
 Prawdziwa macierz kowariancji:
 ```{r true_variance_1}
-estimates_res_400$cov_matrix
+true_var_400 <- estimates_res_400$cov_matrix
+true_var_400
 ```
 
-Wartości 
+Wartości wariancji estymatorów (wartości na diagonali) są zbliżone do wartości prawdziwych, chociaż wyestymowana wariancja $\hat{\beta_i}$ jest systematycznie większa niż wariancja asymptotyczna.
 
 
 ## Zadanie 3
 
 ### Podpunkt a)
 
-Zmniejszenie liczby obserwacji na podstawie których wystymowane są współczynniki regresji logistycznej powoduje zwiększenie błędy estymacji prawdziwych wartości współczynników $\beta$. Sytuacja ta jest w pewnym stopniu obserwowalna na poniższym zestawieniu histogamów, jednak zostanie uwypuklona w kolejnych podpunktach.
+Zmniejszenie liczby obserwacji na podstawie których wyestymowane są współczynniki regresji logistycznej powoduje zwiększenie błędu estymacji współczynników $\beta$. Sytuacja ta jest w pewnym stopniu obserwowalna na poniższym zestawieniu histogamów, jednak zostanie uwypuklona w kolejnych podpunktach.
 
 ```{r histograms_coefficients_2}
 estimates_res_100 <- experiment(100, 3, matrix_rnorm(100, 3))
@@ -275,33 +316,43 @@ histogram_100 <- show_estimates_histogram(estimates_df_100, cov_matrix_100, 100)
 grid.arrange(histogram_100, histogram_400, nrow=2)
 ```
 
+Wydaje się, że w tym scenariuszu deviance ma rozkład bardziej zbliżony do asymptotycznego niż dla n=100. Wynika to z tego, że dla słabych predyktorów
+zwiekszanie ich liczby nie poprawia w znaczący sposób predykcji, zwiększa natomiast poziom szumu. Ogólna różnica deviance a null deviance jest większa dla n=400.
+```{r resid_deviance_2}
+show_residual_deviance(estimates_df_100, 100, 3) 
+```
+
 ### Podpunkt b)
 
-
+Warto zauważyć, że bias obliczony na podstawie zbioru treningowego rozmiaru n=100 jest większy niż bias dla zbioru treningowego rozmiaru n=400.
 ```{r bias_estimation_2}
 estimated_bias_100 <- bias_estimation(estimates_df_100)
-bias_summary <- dplyr::bind_rows(estimated_bias_400, estimated_bias_100) %>% as.data.frame()
-rownames(bias_summary) = c("n=400", "n=100")
-bias_summary
+bias_summary_1 <- dplyr::bind_rows(estimated_bias_400, estimated_bias_100) %>% as.data.frame()
+rownames(bias_summary_1) = c("n=400", "n=100")
+bias_summary_1
 ```
 
 ### Podpunkt c)
 
-Wyestymwana macierz kowariancji:
+Wyestymowana macierz kowariancji:
 ```{r variance_estimated_2}
-variance_estimation(estimates_df_100)
+est_var_100 <- variance_estimation(estimates_df_100)
+est_var_100
 ```
 
 Prawdziwa macierz kowariancji:
 ```{r true_variance_2}
-estimates_res_100$cov_matrix
+true_var_100 <- estimates_res_100$cov_matrix
+true_var_100
 ```
 
-### Zadanie 4
+## Zadanie 4
 
-W przeciwieństwie do poprzedniego zadania, zbiór treningowy został wygenerowany w taki sposób, że istnieje korelacja pomiędzy poszczególnymi predyktorami. Zjawisko to znane jest jako multicollinearity i stanowi efekt niepożądany. 
+W przeciwieństwie do poprzedniego zadania, zbiór treningowy został wygenerowany w taki sposób, że istnieje korelacja pomiędzy poszczególnymi predyktorami. Zjawisko to znane jest jako multicollinearity i stanowi efekt niepożądany. Korelacja pomiędzy predyktorami często powoduje problemy ze znalezieniem właściwych parametrów regresji. W szczególności można spodziewać się większej wariancji estymatorów.
 
-## Podpunkt a) (n=400)
+### Wyniki dla n=400
+
+#### Podpunkt a1)
 
 ```{r histograms_coefficients_3}
 estimates_res_400 <- experiment(400, 3, cov_matrix(400, 3))
@@ -311,22 +362,32 @@ histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
 histogram_400
 ```
 
+```{r resid_deviance_3}
+show_residual_deviance(estimates_df_400, 100, 3) 
+```
+
+#### Podpunkt b1)
+
 ```{r bias_estimation_3}
 estimated_bias_400_cov <- bias_estimation(estimates_df_400)
 estimated_bias_400_cov
 ```
 
+#### Podpunkt c1)
+
 ```{r variance_estimated_3}
-variance_estimation(estimates_df_400)
+est_var_400_cov <- variance_estimation(estimates_df_400)
+est_var_400_cov
 ```
 
 ```{r true_variance_3}
-estimates_res_400$cov_matrix
+true_var_400_cov <- estimates_res_400$cov_matrix
+true_var_400_cov
 ```
 
+### Wyniki dla n=100
 
-## Podpunkt b) (n=100)
-
+#### Podpunkt a2)
 
 ```{r histograms_coefficients_4}
 estimates_res_100 <- experiment(100, 3, cov_matrix(100, 3))
@@ -337,21 +398,240 @@ histogram_100 <- show_estimates_histogram(estimates_df_100, cov_matrix_100, 100)
 grid.arrange(histogram_100, histogram_400, nrow=2)
 ```
 
+#### Podpunkt b2)
+
 ```{r bias_estimation_4}
 estimated_bias_100_cov <- bias_estimation(estimates_df_100)
-estimated_bias_100_cov
+bias_summary_2 <- dplyr::bind_rows(estimated_bias_400_cov, estimated_bias_100_cov) %>% as.data.frame()
+rownames(bias_summary_2) = c("n=400", "n=100")
+bias_summary_2
 ```
 
 ```{r variance_estimated_4}
-variance_estimation(estimates_df_100)
+est_var_100_cov <- variance_estimation(estimates_df_100)
+est_var_100_cov
 ```
+
+#### Podpunkt c2)
 
 ```{r true_variance_4}
-estimates_res_100$cov_matrix
+true_var_100_cov <- estimates_res_100$cov_matrix
+true_var_100_cov
+```
+
+## Podsumownie dla p=3
+
+Wydaje się, że w przypadku eksperymentu zawierającego dane skorelowane, otrzymany bias jest większy.
+```{r bias_comparison}
+bias_summary <- dplyr::bind_rows(estimated_bias_400, estimated_bias_100, estimated_bias_400_cov, estimated_bias_100_cov) %>% as.data.frame()
+rownames(bias_summary) <- c("n=400", "n=100", "n=400 corr", "n=100 corr")
+bias_summary
+```
+
+Zaproponowane porównanie wyestymowanej wariancji polega na odjęciu wariancji wyestymowanej oraz prawdziwej i wzięciu modułu z tak otrzymanej wartości. W wyniku tej procedury otrzymam 3 wartości mówiące o biasie estymatora wariancji. Otrzymane wartości nie wskazują na żadną oczywistą zależność pomiędzy estymatorami. Jedyną wartością, która odstaje od reszty to bias związany ze zbiorem treningowym rozmiaru n=100 i skorelowanymi predyktorami. W tym przypadku ogólny błąd był największy.
+```{r estimates_comparison}
+variance_bias <- function(true_var, est_var) {abs(diag(true_var - est_var))}
+
+variance_bias_df <- data.frame(`n=400`=variance_bias(true_var_400, est_var_400),
+                               `n=100`=variance_bias(true_var_100, est_var_100),
+                               `n=400 corr`=variance_bias(true_var_400_cov, est_var_400_cov),
+                               `n=100 corr`=variance_bias(true_var_100_cov, est_var_100_cov))
+rowSums(t(variance_bias_df))
 ```
 
 
+## Zadanie 5
 
+Aby uniknać przedstawiania wyników dla wszystkich 20 estymatorów, ogranicze się do $\beta_1$, $\beta_2$ oraz $\beta_3$ (tam gdzie jest to konieczne).
+
+### Wyniki dla n=400
+
+#### Podpunkt a)
+
+
+```{r histograms_coefficients_5}
+estimates_res_400 <- experiment(400, 20, matrix_rnorm(400, 20))
+estimates_df_400 <- estimates_res_400$estimates
+
+cov_matrix_400 <- estimates_res_400$cov_matrix
+histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
+histogram_400
+```
+
+```{r resid_deviance_5}
+show_residual_deviance(estimates_df_400, 400, 20) 
+```
+
+Podobnie jak w przypadku gdy liczba predyktorów wynosiła 3, niewiele spośród predyktorów zostało uznanych za istotne. Dodatkowo w obu przypadkach ponowne przeprowadzenie eksperymentu przypisuje istotność w inny sposób.
+```{r deviance_analysis_5}
+X <- matrix_rnorm(400, 20)
+beta <- rep(3, 20)
+logit <- X %*% beta
+p <- exp(logit) / (1 + exp(logit))
+  
+Y <- rbinom(400, 1, p)
+model <- glm(Y~X - 1, family=binomial)
+summary(model)
+```
+
+#### Podpunkt b)
+
+b) Obciążenie estymatorów
+
+```{r bias_estimation_5}
+estimated_bias_400 <- bias_estimation(estimates_df_400)
+estimated_bias_400[1:3]
+```
+
+#### Podpunkt c)
+
+c) Wyestymuj macierz kowariancji wektora estymatorów (beta1, beta2, beta3) i porównaj z
+asymptotyczną macierzą kowariancji.
+
+Wyestymowana macierz kowariancji:
+```{r variance_estimated_5}
+est_var_400 <-variance_estimation(estimates_df_400)
+est_var_400[1:3, 1:3]
+```
+
+Prawdziwa macierz kowariancji:
+```{r true_variance_5}
+true_var_400 <- estimates_res_400$cov_matrix
+true_var_400[1:3, 1:3]
+```
+
+Wartości wariancji estymatorów (wartości na diagonali) są zbliżone, chociaż wyestymowana wariancja $\hat{\beta_i}$ jest systematycznie większa niż wariancja asymptotyczna.
+
+
+### Wyniki dla n=100
+
+#### Podpunkt a)
+
+Dla n=100 widać znaczną różnice pomiędzy wartościami wyestymowanymi a asymptotycznym rozkładem.
+
+```{r histograms_coefficients_6}
+estimates_res_100 <- experiment(100, 20, matrix_rnorm(100, 20))
+estimates_df_100 <- estimates_res_100$estimates
+cov_matrix_100 <- estimates_res_100$cov_matrix
+histogram_100 <- show_estimates_histogram(estimates_df_100, cov_matrix_100, 100)
+
+grid.arrange(histogram_100, histogram_400, nrow=2)
+```
+
+```{r resid_deviance_6}
+show_residual_deviance(estimates_df_100, 100, 20) 
+```
+
+#### Podpunkt b)
+
+```{r bias_estimation_6}
+estimated_bias_100 <- bias_estimation(estimates_df_100)
+bias_summary_1 <- dplyr::bind_rows(estimated_bias_400[1:3], estimated_bias_100[1:3]) %>% as.data.frame()
+rownames(bias_summary_1) = c("n=400", "n=100")
+bias_summary_1
+```
+
+#### Podpunkt c)
+
+Wyestymowana macierz kowariancji:
+```{r variance_estimated_6}
+est_var_100 <- variance_estimation(estimates_df_100)
+est_var_100[1:3,1:3]
+```
+
+Prawdziwa macierz kowariancji:
+```{r true_variance_6}
+true_var_100 <- estimates_res_100$cov_matrix
+true_var_100[1:3,1:3]
+```
+
+## Przypadek ze skorelowanymi predyktorami
+
+### Wyniki dla n=400
+
+#### Podpunkt a)
+
+```{r histograms_coefficients_7}
+estimates_res_400 <- experiment(400, 20, cov_matrix(400, 20))
+estimates_df_400 <- estimates_res_400$estimates
+cov_matrix_400 <- estimates_res_400$cov_matrix
+histogram_400 <- show_estimates_histogram(estimates_df_400, cov_matrix_400, 400)
+histogram_400
+```
+
+```{r resid_deviance_7}
+show_residual_deviance(estimates_df_400, 100, 3) 
+```
+
+#### Podpunkt b)
+
+```{r bias_estimation_7}
+estimated_bias_400_cov <- bias_estimation(estimates_df_400)
+estimated_bias_400_cov[1:3]
+```
+
+#### Podpunkt c1)
+
+```{r variance_estimated_7}
+est_var_400_cov <- variance_estimation(estimates_df_400)
+est_var_400_cov[1:3]
+```
+
+```{r true_variance_7}
+true_var_400_cov <- estimates_res_400$cov_matrix
+true_var_400_cov[1:3, 1:3]
+```
+
+### Wyniki dla n=100
+
+#### Podpunkt a)
+
+W scenariuszu dla zbioru testowego rozmiaru n=20 przy skorelowanych predyktorach algorytm estymacji współczynników regresji logistycznej nie zbiegł do optimum. 
+
+```{r histograms_coefficients_8, warning=FALSE, include=FALSE}
+estimates_res_100 <- experiment(100, 20, cov_matrix(100, 20))
+estimates_df_100 <- estimates_res_100$estimates
+cov_matrix_100 <- estimates_res_100$cov_matrix
+```
+
+#### Podpunkt b)
+
+```{r bias_estimation_8}
+estimated_bias_100_cov <- bias_estimation(estimates_df_100)
+bias_summary_2 <- dplyr::bind_rows(estimated_bias_400_cov[1:3], estimated_bias_100_cov[1:3]) %>% as.data.frame()
+rownames(bias_summary_2) = c("n=400", "n=100")
+bias_summary_2
+```
+
+```{r variance_estimated_8}
+est_var_100_cov <- variance_estimation(estimates_df_100)
+est_var_100_cov[1:3]
+```
+
+#### Podpunkt c2)
+
+```{r true_variance_8}
+true_var_100_cov <- estimates_res_100$cov_matrix
+true_var_100_cov[1:3]
+```
+
+## Podsumownie dla p=20
+
+Podobnie do przypadku gdzie p=3, wydaje się, że w przypadku eksperymentu zawierającego dane skorelowane, otrzymany bias jest większy. W obu przypadkach wydaje się, że największy wpływ na popełniany błąd ma rozmiar zbioru treningowego.
+```{r bias_comparison_1}
+bias_summary <- dplyr::bind_rows(estimated_bias_400, estimated_bias_100, estimated_bias_400_cov, estimated_bias_100_cov) %>% as.data.frame()
+rownames(bias_summary) <- c("n=400", "n=100", "n=400 corr", "n=100 corr")
+t(bias_summary[, 1:3])
+```
+
+Analogicznie do biasu estymatorów, estymator wariancji poszczególnych współczynników jest większy dla danych skorelowanych. W tym przypadku wydaje się jednak, że kluczową rolę odgrywa romiar zbioru treningowego, a nie korelacja predyktorów.
+```{r estimates_comparison_1}
+variance_bias_df <- data.frame(`n=400`=variance_bias(true_var_400, est_var_400),
+                               `n=100`=variance_bias(true_var_100, est_var_100),
+                               `n=400 corr`=variance_bias(true_var_400_cov, est_var_400_cov),
+                               `n=100 corr`=variance_bias(true_var_100_cov, est_var_100_cov))
+variance_bias_df[1:3,]
+```
 
 
 
