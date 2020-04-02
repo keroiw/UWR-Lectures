@@ -1,5 +1,10 @@
 ---
 title: "BigDataAssignment1"
+knit: (function(input_file, encoding) {
+  out_dir <- '../docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'BigData1.html'))})
 author: "Błażej Wiórek"
 date: "3/30/2020"
 output: html_document
@@ -12,10 +17,32 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(gridExtra)
+set.seed(43)
 ```
 
 ## Zadanie 1
 
+Zadania polega na wizualizacji aproksymacji wartości $P(Z > t)$, gdzie $Z \sim N(0, 1)$ oraz $t\in \mathbb{R}$ to pewien próg powyżej którego będę odrzucał hipoteze zerową. Aproksymacja ma następującą postać:
+
+$$
+\frac{\phi(t)}{t}(1-\frac{1}{t^2}) \leq \mathbb{P}(Z > t) \leq \frac{\phi(t)}{t}
+$$
+
+
+Dowód tego, że $\mathbb{P} (Z > t) \leq \frac{\phi(t)}{t}$:
+
+Jako, że $\mathbb{P} (Z > t) =\frac{1}{\sqrt{2\pi}} \int_t^{\infty} e^{\frac{x^2}{2}} dx$, to obszar całkowania ma postać: $x \geq t$ z czego otrzymuje, że $\frac{x}{t} \geq 1$. Mogę teraz zapisać, że $\frac{1}{\sqrt{2\pi}} \int_t^{\infty} e^{\frac{x^2}{2}} dx \leq \frac{1}{\sqrt{2\pi}t} \int_t^{\infty} e^{\frac{x^2}{2}} dx$, co daje w wyniku teze. 
+
+Dowód ograniczenia dolnego jest prosty ale żmudny dlatego zostanie pominięty. 
+
+
+Dodatkowo można się spodziewać, że:
+
+* Wraz ze wzrostem t, $P(Z > t)$ maleje
+* $lim_{t \rightarrow0^+} \frac{\phi(t)}{t} = + \infty$
+* $lim_{t \rightarrow0^+} \frac{\phi(t)}{t}(1-\frac{1}{t^2}) = 0$
+
+Przyjmuje następujące oznaczenia: $g_1(t) = \mathbb{P}(Z > t)$, $g_2(t)=\frac{\phi(t)}{t}$, $g_3(t)=\frac{\phi(t)}{t}(1-\frac{1}{t^2})$.
 ```{r markov_approximation}
 create_approximation <- function(t) {
     cdf_t <- pnorm(t)
@@ -41,6 +68,7 @@ markov_bounds_plot <- ggplot(markov_bounds_df.markov_long, aes(x=t, y=function_v
 markov_bounds_plot
 ```
 
+Jeśli wiemy, że zaproponowane przybliżenia działają to spodziewam się, że $lim_{t \rightarrow\infty} \frac{g_1(t)}{g_2(t)} = 1$ oraz $lim_{t \rightarrow\infty} \frac{g_1(t)}{g_3(t)} = 1$. Można zaobserwować, że ograniczenie górne zbiega szybciej niż ograniczenie dolne, chociaż charakteryzuje się ono większym błędem dla relatywnie małych wartości $t$. 
 ```{r markov_approximation_2}
 markov_bounds_df.ratio_long <- markov_bounds_df %>% 
                                select(c(1,5,6)) %>% 
@@ -57,6 +85,11 @@ ratio_bounds_plot
 
 ## Zadanie 2
 
+Dla ustalonego poziomu $\alpha$ można pokazać, że $|z(\frac{\alpha}{n})| \approx \sqrt{2logn}$. Wynika z tego, że jeśli wartość $\alpha$ jest ustalona a $n \rightarrow \infty$, to $|z(\frac{\alpha}{n})|$ rośnie w tempie $\sqrt{2logn}$.
+
+Inne (dokładniejsze) przybliżenie ma postać: $|z(\frac{\alpha}{n})| \approx \sqrt{B(1 - \frac{logB}{B})}$, $B = 2log(\frac{2p}{\alpha}) - log(2\pi)$. Jest ono jednak znacznie mniej użyteczne ze względu na to, że zależy ono od parametru $\alpha$.
+
+Przyjmuje następujące oznaczenia: $g_1(\alpha, p)=\Phi^{-1}(1 - \frac{\alpha}{2p})$, $g_2(p)=\sqrt{2logn}$, $g_3(\alpha, p)=\sqrt{B(1 - \frac{logB}{B})}$.
 ```{r assignment_2}
 create_row <- function(p, alpha) {
     g1 <- qnorm(1 - alpha / (2 * p))
@@ -66,7 +99,7 @@ create_row <- function(p, alpha) {
     data.frame(p=p, alpha=alpha, g1=g1, cp=cp, g2=g2, `g1/g2`=g1/g2, `g1/cp`=g1/cp)
 }
 
-p <- seq(from=10^2, to=10^9, length.out=1000)
+p <- exp(seq(log(10^2), log(10^9), length.out = 1000))
 alpha <- c(0.01, 0.1, 0.5)
 alpha <- rep(alpha, each=length(p))
 p <- rep(p, 3)
@@ -76,30 +109,35 @@ df.raw_functions <- df %>% select(1:5) %>% gather(key="f", value="value", c("g1"
 df.ratios <- df %>% select(c(1,2,6,7)) %>% gather(key="f", value="value", c("g1.g2", "g1.cp"))
 ```
 
+Można zaobserwować, że przybliżenie kwantyla $|z(\frac{\alpha}{n})|$ za pomocą $\sqrt{B(1 - \frac{logB}{B})}$ jest nierozróżnialne na poniższym wykresie. Z drugiej strony dokładność przybliżenia za pomocą $\sqrt{2logn}$ jest zależna od poziomu istotności $\alpha$.
 ```{r raw_functions_plot}
 raw_functions_plot <- ggplot(df.raw_functions, aes(x=p, y=value, color=f)) + 
-                      geom_point(alpha=0.3) +
+                      geom_point() +
                       scale_color_brewer(palette="YlOrBr") +
                       scale_x_log10() +
-                      facet_grid(.~alpha)
+                      facet_grid(.~alpha) +
+                      ggtitle("Quantile approximation")
 raw_functions_plot
 ```
 
+Powyższe obserwacje znajdują swoje potwierdzenie w poniższych wykresach. Można zauważyć, że $\forall p \frac{g_1(\alpha, p)}{g_2(\alpha, p)} \approx 1$, natomiast $\frac{g_1(\alpha, p)}{c(p)} \rightarrow 1$ oraz funkcja jest rosnąca lub malejąca w zależności od $\alpha$. 
 ```{r ratios_plot}
 ratios_plot <- ggplot(df.ratios, aes(x=p, y=value, color=f)) + 
-    geom_point(alpha=0.3) + 
+    geom_point() + 
     scale_color_brewer(palette="YlOrBr") +
     scale_x_log10() +
-    facet_grid(.~alpha)
+    facet_grid(.~alpha) +
+    ggtitle("Approximation ratio")
 
 ratios_plot
 ```
 
 ## Zadanie 3
 
-
-```{r assignment_3}
-create_row <- function(k, p, trajectory_id) {
+Celem zadania jest wizualne przedstawienie tego, że $\frac{max(|y_i|)}{\sqrt{2logk}} \rightarrow 1$. Oznacza to tyle, że aby sygnał był wykryty przez test Bonferroniego, jego siła musi przekroczyć granicę $\sqrt{2logk}$.
+```{r assignment_3, warning=FALSE}
+create_row <- function(k, trajectory_id) {
+    p = rnorm(k)
     M_k <- max(p[1:k])
     g_k <- sqrt(2 * log(k))
     data.frame(k=k, M_k=M_k, `M_k/g_k` = M_k/g_k, trajectory=trajectory_id)
@@ -109,35 +147,52 @@ create_k <- function(max_power) {10 ^ (1:max_power)}
 
 create_trajectories <- function(k_v) {
     trajectories <- list()
-    for (i in 1:5) {
-        p = rnorm(10^length(k_v))
-        trajectory_id <- paste("T", i)
-        trajectories[[i]] = dplyr::bind_rows(lapply(k_v, create_row, p=p, trajectory_id=trajectory_id))
+    for (k in k_v) {
+        trajectory_id <- paste("n=", k)
+        trajectories[[k]] = dplyr::bind_rows(lapply(rep(k, 5), create_row, trajectory_id=trajectory_id))
     }
     dplyr::bind_rows(trajectories)
     
 }
 
-k_v <- 10^(1:5)
+k_v <- 10^(1:8)
 trajectories <- create_trajectories(k_v)
 g_k_df = data.frame(x=k_v, g_k=sqrt(2 * log(k_v)))
 ```
 
+Czerwone trójkąty wyznaczają granice $\sqrt{2logk}$. Można zaobserwować, że dla kolejnych trajektorii postaci $M_k = max_{i \in \{1, ..., k\}}|Y_K|$, gdzie $Y_k \ \sim N(0, 1)$ oraz $k \in \{10, 10^2, ...,10^8\}$ wartości $M_k$ są zazwyczaj mniejsze niż $\sqrt{2logk}$.
 ```{r plot_trajectories}
 t_plot <- ggplot() + 
     geom_point(data=trajectories, aes(x=k, y=M_k, color=trajectory)) + 
     geom_point(data=g_k_df, aes(x=x, y=g_k), shape=25, color="red", size=3) +
-    scale_x_log10() 
+    scale_x_log10() +
+    ggtitle("Bonferroni threshold")
 plot(t_plot)
 ```
 
+Wykres poniżej pozwala zwizualizować stwierdzenie z wprowadzenia do zadania tzn: $\frac{max(|y_i|)}{\sqrt{2logk}} \rightarrow 1$. 
 ```{r rations_plot_2}
-gk_mk_plot <- ggplot(trajectories, aes(x=k, y=M_k.g_k, color=trajectory)) + geom_point() + scale_x_log10()
+gk_mk_plot <- ggplot(trajectories, aes(x=k, y=M_k.g_k, color=trajectory)) + 
+              geom_point() + 
+              scale_x_log10() +
+              ggtitle("Bonferroni threshold")
 plot(gk_mk_plot)
 ```
 
 ## Zadanie 4
 
+Zadanie polega na wyestymowaniu mocy testu Bonferroniego i testu chi-square dla następujących scenariuszy:
+
+1. $\mu_1 = 1.2\sqrt{2logp}, \mu_2 = ... =\mu_p = 0$
+2. $\mu_1 = ... = \mu_{1000} = 0.15\sqrt{2 logp}, \mu_{1001} = ... =\mu_p = 0$
+
+dla $p = 5000$.
+
+Nie trudno zorientować się, że test pierwszy jest typowym scenariuszem dla testu Bonferroniego jako, że mam pojedynczy sygnał który spełnia założenie $\mu_i > (1 + \epsilon)\sqrt{2 logp}$. Drugi przypadek jest przykładem mającym pokazać zastosowanie testu chi-square jako, że mam wiele relatywnie słabych sygnałów. 
+
+Można się zastanowić dlaczego test chi-square pasuje do drugiego scenariusza. Wynika to z postaci statystyki testowej tzn. $T = -\sum^p_{i=1}2logp_i$. Wartości $p_i$ to p-wartości dla kolejnych hipotez $H_{0, i}$. Można zaobserwować, że jeśli p-wartości są relatywnie małe, to wartość statystyki $T$ rośnie. Przy założeniu globalnej hipotezy zerowej i tego, że $p_i$ to niezależne zmienne losowe mam, że: $T \sim \chi^2_{2p}$.
+
+Wyestymowanie mocy testu polega na przeprowadzeniu testu 5000 hipotez $H_{0, i}$, stwierdzeniu czy hipoteza globalna została odrzucona czy nie oraz zapisaniu wyniku. Następnym krokiem jest powtórzenie całości 1000 razy i określenie mocy na podstawie współczynnika $\frac{|H_{A_{i \in \{1, ..., 1000\}}}|}{1000}$.
 ```{r test_comparison}
 bonferroni_test <- function(X, alpha) {
     n <- length(X)
@@ -175,12 +230,16 @@ sparse_res <- dplyr::bind_rows(lapply(1:rep, test_sparse, sample_size=sample_siz
 dense_res <- dplyr::bind_rows(lapply(1:rep, test_dense, sample_size=sample_size, non_zero_mu=1000, alpha=0.05))
 ```
 
+Moc wyestymowana dla podpunktu a):
 ```{r sparse_scenario}
 sparse_power <- colSums(sparse_res)/rep
 sparse_power
 ```
+Zgodnie z założeniami moc testu Bonferroniego wynosi niemal 1, natomiast moc testu chi-square jest bardzo niska. 
 
+Moc wyestymowana dla podpunktu b):
 ```{r dense_scenario}
 dense_power <- colSums(dense_res)/rep
 dense_power
 ```
+Zgodnie z założeniami mam sytuacje odwrotną niż w podpunkcie a) tzn. test Bonferroniego nie był w stanie odrzucić globalnej hipotezy zerowej w żadnym z powtórzeń eksperyment, co wynika ze zbyt małej siły sygnału. 
