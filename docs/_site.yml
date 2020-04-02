@@ -1,0 +1,16 @@
+name: "University of Wroclaw"
+output_dir: "docs"
+navbar:
+  title: "UWR"
+  left:
+  - text: "Home"
+   href: index.html
+  - text: "Linear Models 1"
+   href: Modele1.html
+  - text: "Linear Models 2"
+   href: Modele2.html
+  - text: "Big Data 1"
+   href: BigData1.html
+output:
+  html_document:
+ theme: cosmo
