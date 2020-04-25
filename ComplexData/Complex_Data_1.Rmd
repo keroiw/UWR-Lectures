@@ -1,0 +1,412 @@
+---
+title: "Complex data - Homework 1"
+knit: (function(input_file, encoding) {
+  out_dir <- '../docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'ComplexData1.html'))})
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(nlme)
+knitr::opts_chunk$set(echo = F)
+```
+
+### Background
+
+Background:
+
+* Exposure to lead is associated with deficits in cognitive ability.
+* Children with high lead levels can be treated with injectionswhich generally require hospitalization.
+* In this study, investigators are interested in assessing a newagent,succimer, which can be given orally.
+* Blood lead levels were measured at baseline, and after 1, 4 and6 weeks of follo
+
+### Treatment of Lead-Exposed Children
+
+**Questions**:
+
+* Are there any apparent differences?
+* Does the variability appear to be constant over time?
+
+Basic overview contains infromation about mean and standard deviation. 
+```{r data_overview}
+lead <- read.table("/home/wiorek/Desktop/UWR-Lectures/ComplexData/lead_data", header=F)
+names(lead) <- c("id", paste("y", 1:4, sep=""))
+
+basic_summary <- data.frame(mean.y=apply(lead[,2:5], 2, mean), sd.y=apply(lead[,2:5], 2, sd))
+as.data.frame(basic_summary)
+```
+
+Table below contains similar, but more granular information:
+```{r general_summary}
+general_summary <- apply(lead[,2:5], 2, summary)
+as.data.frame(general_summary)
+```
+
+It seems that blood lead levels drop significantly between measeurement one and two. Then it starts to grow steadily. Standard deviation grows from measurment to measurment, hence at first glance there is no reason to assume that the variance is constant. These observations were validated via box plots. 
+ 
+```{r chceck_variance}
+outlier_predicate <- function(x) {
+  return(x < quantile(x, 0.25) - 1.5 * IQR(x) | x > quantile(x, 0.75) + 1.5 * IQR(x))
+}
+
+lead.long <- lead %>% 
+             gather(key="treatment", value="treatment_results", -id)  %>% 
+             group_by(treatment) %>% 
+             mutate(is_outlier = ifelse(outlier_predicate(treatment_results), id, as.numeric(NA))) %>%
+             ungroup()
+
+treatment_boxplots <- ggplot(lead.long, aes(x=treatment, y=treatment_results)) + 
+                      geom_boxplot() + 
+                      geom_text(aes(label = is_outlier), na.rm=T, hjust = -0.3) +
+                      ggtitle("Treatments comparison")
+treatment_boxplots
+```
+
+An interesting observation is that the heteroscedasticity is mainly due to outliers. 
+
+### Questions:
+
+* How would you formally test whether the differences in means are significant?
+
+We want to compare the differences in means at four time points, hence the basic idea to use ANOVA.
+```{r ANOVA}
+lead.long_fct <- lead.long %>% 
+                 mutate(treatment = factor(treatment, order=T)) %>% 
+                 select(c("treatment", "treatment_results"))
+#glimpse(lead.long_fct)
+
+anova_model <- lm(treatment_results ~ treatment, data=lead.long_fct)
+summary(anova_model)
+```
+The summary of ANOVA model states that there's clear difference between Intercept, third and the second treatment. The difference between Intercept and fourth treatment seems to vanish a little, but it's still significant for the most common statistical significance thresholds. Proposed test is somehow natural but we need to keep in mind that there are reasons to claim that assumptions of ANOVA are violated. 
+
+If we want to test the hypothesis that all means are equal then we have: $H_0: \eta_0 = \eta_1  = \eta_2 = \eta_3$, where $\eta_0 = \beta_0$ and $\beta_i = \beta_0 + \beta_i$ ($i \neq 0$). Wald test might be used with matrix $L$ given by:
+```{r wald_test_matrix}
+L <- matrix(0, nrow=3, ncol=4)
+L[1, 2] <- 1
+L[2, 3] <- 1
+L[3, 4] <- 1
+L
+```
+
+The conclustion is that test simplifies to: $H_0: \beta_1=\beta_2=\beta_3=0$. Under $H_0$, test statistic has distribution $\chi^2_3$. 
+```{r wald_result}
+est <- anova_model$coefficients
+var_mtrx <- vcov(anova_model)
+
+W <- t(L %*% est) %*% solve(L %*% var_mtrx %*% t(L)) %*% (L %*% est)
+p_val <- 1-pchisq(W, df=3)
+paste("Test stat", round(W, 3), "P-value for Wald test: ", p_val[1, 1])
+```
+Obtained p-value is almost zero hence we conclude that there is basis to reject $H_0$.
+
+## Introduction to GLS
+
+```{r longitudinal_data_preparation}
+lead.longit <- lead.long %>%
+               select(c("id", "treatment", "treatment_results")) %>% 
+               mutate(time = factor(rep(c(0, 1, 4, 6), each=50)), 
+                      time.cat = factor(rep(c(1, 2, 3, 4), each=50)))
+```
+
+Let's suppose that we have linear model 
+$$
+y_i = \alpha + \beta x_i + \epsilon_i
+$$
+
+In ordinary least squares we assume homoscedestaticity and lack of correlation. These assumption can be formalized as:
+
+1. Homoscedestaticity: $Var(\epsilon_i | X_i) = \sigma^2$, where $\sigma^2$ represents constant variance
+2. Lack of autocorrelation: $Cov(\epsilon_i, \epsilon_j | X_i, X_j) = 0$, where $i \neq j$
+
+In case of repeated measures these assumptions are not valid. There are simple intuitions that can explain this phenomena. 
+
+1. Variance can change in time because blood lead levels may change due to different responses of the patients.
+2. Correlation tends to be positive because if blood lead level was relatively high at the beginning, it will often remain so during the experiment. 
+
+General Least Squares handle this problem but there are two additional parameters of the model that needs to be specified. Correlation describes the within-group correlation structure and weights describes the within-group heteroscedasticity structure. In below example both correlation and variance structures are unrestricted which means that the only requirements for these matrices is that they need to be summetric.
+
+There are two important details:
+
+1. Correlation is linked to id, because autocorrelation is expected within single patient measurement.
+2. Variation is linked to time.cat beacause it is expected that variance may vary between different time points
+
+```{r model_reml}
+lead.cat <- gls(treatment_results~time.cat,
+                correlation=corSymm(form= ~1 | id),
+                weights=varIdent(form= ~1 | time.cat),
+                data=lead.longit)
+summary(lead.cat)
+```
+
+### Assignment 1
+
+Based on the output provided, summary(lead.cat), estimate the error variance-covariance matrix $\Sigma$.
+
+Link between correlation and variance is given by:
+$$
+Corr(X, Y) \sigma_X \sigma_Y = Cov(X, Y)
+$$
+Information in "Parameter estimates" is equivalent of: $\frac{rse(T_0)}{rse(T_0)}$, $\frac{rse(T_1)}{rse(T_0)}$, $\frac{rse(T_2)}{rse(T_0)}$, $\frac{rse(T_3)}{rse(T_0)}$ where rse refers to residual standard error. It's obvious that it's sufficient to obtain $rse(T_0)$ in order to compute $rse(T_i)$. Fortunatelly $rse(T_0)$ is given as "Residual standard error", hence $rse(T_0)=5.020936$. Now it's possible to use link function between correlation and covariance as $\hat{\sigma} = rse$ and entries of correlation matrix were given in the summary. 
+
+```{r model_reml_sigma}
+get_cov_mtrx <- function(rse, corr_mtrx) {
+  cov_mtrx <- matrix(0L, nrow=4, ncol=4)
+  
+  for (i in 1:3) {
+    for (j in (i+1):4) {
+      cov_mtrx[j, i] <- corr_mtrx[[i]][j-i] * rse[i] * rse[j]
+    }
+  }
+  
+  cov_mtrx <- cov_mtrx + t(cov_mtrx)
+  diag(cov_mtrx) <- rse^2
+  cov_mtrx
+}
+
+rse_reml <- c(1.000000, 1.528090, 1.563886, 1.841549) * lead.cat$sigma
+corr_reml <- list(c(0.401, 0.384, 0.495), c(0.731, 0.507), c(0.455))
+sigma_reml <- get_cov_mtrx(rse_reml, corr_reml)
+sigma_reml
+```
+
+In order to check if presented formula work as expected, obtained results were converted back to correlation matrix and compared to output of the summary. 
+
+```{r corr_check_reml}
+cov2cor(sigma_reml)
+```
+
+### Assignment 2 
+
+What is the estimate of $\Sigma$ when method="ML"is used to estimate it?
+
+Maximum likelihood estimator of variance might be biased towards zero, hence it tends to underestimate the true variance. When REML is applied, then estimates of $\Sigma$ are corrected for the reduction of freedom due to estimating $\beta$.
+
+```{r model_mle}
+lead.cat_mle <- gls(treatment_results~time.cat,
+                correlation=corSymm(form= ~1 | id),
+                weights=varIdent(form= ~1 | time.cat),
+                data=lead.longit,
+                method="ML")
+summary(lead.cat_mle)
+```
+
+```{r model_mle_sigma}
+rse_mle <- c(1.000000, 1.528103, 1.563899, 1.841570) * lead.cat_mle$sigma
+corr_mle <- list(c(0.401, 0.384, 0.495), c(0.731, 0.507), c(0.455))
+sigma_mle <- get_cov_mtrx(rse_mle, corr_mle)
+#sigma_mle
+```
+
+```{r reml_mle_comparison}
+reml_mle <- cbind(sigma_reml, sigma_mle)
+colnames(reml_mle) <- c(paste("T_", 1:4, "_reml"), paste("T_", 1:4, "_mle"))
+reml_mle
+```
+
+As expected, variance estimated via mle is systematically smaler than variance obtained by REML. 
+
+```{r reml_mle_comparison_plot}
+data.frame(reml = diag(sigma_reml), mle = diag(sigma_mle)) %>% 
+  mutate(treatment = paste("T_", 1:4)) %>%
+  gather(key="method", value="variance", -"treatment") %>%
+  ggplot(aes(x = treatment, y=variance, fill=method)) + 
+  geom_bar(stat="identity", position = position_dodge()) + 
+  ggtitle("Comparison of REML and MLE")
+```
+
+## Assignment 3
+
+Based on the $\Sigma$ estimates what might be reasonable assumptions regarding the variances and correlations?
+
+There are two things that are worth to check:
+
+1. Homoscedestaticity - it was done with box plot and computation of standard deviation at the beginning of the report. It turns out that variances within groups are generally quite similar, however due to outliers they are streched.
+2. Lack of autocorrelation - as it was already mentioned that it's rather common for repeated measures to be positively correlated. Correlation matrix below ensure that this scenario is present in the dataset.
+
+```{r treatment_corr}
+lead %>% select(-id) %>% cor()
+```
+
+In order to visualize autocorrelation it might be interesting to plot trajectories for each patient during the treatments. In order to keep plot clean, 10 patients were sampled from the data.
+
+```{r trajectories}
+lead.longit %>% 
+  group_by(treatment) %>% 
+  top_n(10, wt=id) %>% 
+  mutate(patient_id = factor(id)) %>%
+  ggplot(aes(x=treatment, y=treatment_results, group=patient_id)) + 
+  geom_line(aes(color=patient_id)) + ggtitle("Response to treatment")
+```
+
+It's clear that blood lead level dumps from treatment on to treatment three and then grow again. This pattern was already observed on box-plot in the beginning of the report. 
+
+The conclusion is that the model with unrestricted correlation and varaince should be the best choice. In this case the number of parameters to estimate is $10 + 4 = 14$ (10 is number of parameters in $\Sigma$ and 4 is number of treatments).
+
+### Assignment 4
+
+Choose at least 2 different combinations of correlation and weights to simplify the $\Sigma$ estimation. Compare them with the “unstructured” variance-covariance matrix in part 1
+
+**Assume constant varince**:
+
+In this case it is assumed that the variance is contant in each time point. As a result $\Sigma$ has equal values on the diagonal ($\sigma_{jj} = \sigma_{ii}$). It reduces the number of parameters to $7 + 4 = 11$. Assuming constant varaince is the same as assuming homoscedastic errors.
+
+```{r compund_weights}
+lead.fixed_weights <- gls(treatment_results~time.cat,
+                     correlation = corSymm(form= ~1 | id),
+                     data=lead.longit)
+summary(lead.fixed_weights)
+```
+
+```{r fixed_weights_sigma}
+rse_var_const <-  rep(lead.fixed_weights$sigma, 4)
+corr_var_const <- list(c(0.424, 0.399, 0.422), c(0.719, 0.457), c(0.411))
+sigma_var_const <- get_cov_mtrx(rse_var_const, corr_var_const)
+sigma_var_const
+```
+
+**Assume constant varince and uncorrelated errors**:
+
+In this case it is assumed that the error $\epsilon_{ij}$ can be decomposed into subject effect $b_i$ and within subject measurement error $w_{ij}$. The main idea is that the patients naturally differ in terms of response to the treatment $b_i$ and some random noise is involved in measurements $w_{ij}$. Under these assumption matrix has the form known as "compound symmetry":
+$$
+\begin{pmatrix}
+\sigma^2_b + \sigma^2_w & \sigma^2_b & \sigma^2_b & \sigma^2_b \\
+\sigma^2_b & \sigma^2_b + \sigma^2_w & \sigma^2_b & \sigma^2_b \\
+\sigma^2_b & \sigma^2_b & \sigma^2_b + \sigma^2_w & \sigma^2_b \\
+\sigma^2_b & \sigma^2_b & \sigma^2_b & \sigma^2_b + \sigma^2_w
+\end{pmatrix}
+$$
+
+It reduces the number of parameters to $2 + 4 = 6$.
+
+```{r compound}
+lead.compound <- gls(treatment_results~time.cat,
+                     correlation = corCompSymm(form=~1|id),
+                     data=lead.longit)
+summary(lead.compound)
+```
+
+```{r compound_sigma}
+std_T_compound <- lead.compound$sigma
+
+sigma_compound <- matrix(0.4803495 * std_T_compound ^ 2, nrow=4, ncol=4)
+diag(sigma_compound) <- rep(std_T_compound^2, 4)
+
+sigma_compound
+```
+
+**Comparison of the models**:
+
+General comparison of the models is presented in the table below. 
+```{r model_comparison_table}
+create_model_summary <- function(models_lst, model_names) {
+  aic <- unlist(lapply(models_lst, AIC))
+  bic <- unlist(lapply(models_lst, BIC))
+  log_lik <- unlist(lapply(models_lst, logLik))
+  df <- unlist(lapply(models_lst, function(x) attr(logLik(x), "df")))
+  sigma <- c(lead.cat$sigma, lead.fixed_weights$sigma, lead.compound$sigma)
+  
+  data.frame(AIC=aic, 
+           BIC=bic, 
+           RSE=sigma, 
+           logLik=log_lik,
+           df=df,
+           row.names=model_names)
+}
+
+model_names <- c("Unrestricted", "FixedVar", "CompSymm")
+create_model_summary(list(lead.cat, lead.fixed_weights, lead.compound),
+                     model_names)
+```
+
+As expected unconstrained model has the best preformance. RSE and AIC increase when correlation and variance is constrained. An interesting point is that $BIC(fixed\_var) > BIC(fixed\_compSymm)$, but it happens because BIC strongly penalize as the amount of parameters increase. 
+
+Formally ratio likelihood test might be perfomed as all these model are nested. The caution must be given, because in order to carry this procedure the models must be fitted with MLE procedure. It happens because when model is fitted with REML, then REML likelhoods don't involve the regression parameters. 
+
+```{r models_mle}
+lead.fixed_weights_mle <- gls(treatment_results~time.cat,
+                          correlation = corSymm(form= ~1 | id),
+                          data=lead.longit,
+                          method="ML")
+
+lead.compound_mle <- gls(treatment_results~time.cat,
+                     correlation = corCompSymm(form=~1|id),
+                     data=lead.longit,
+                     method="ML")
+
+mle_summary <- create_model_summary(list(lead.cat_mle, lead.fixed_weights_mle, lead.compound_mle),
+                                    model_names)
+mle_summary[, c("logLik", "df")]
+```
+
+Likelohood ratio test tests if the parameters of unresticted model are truly important. Test statistic is given as:
+$$
+LRT = 2(\hat{l}_{unrest} - \hat{l}_{red}) \sim \chi^2_{df_{unrest} - df_{red}}
+$$
+
+```{r lrt_table}
+stat_val <- rbind(mle_summary["Unrestricted", ] - mle_summary["FixedVar", ],
+                  mle_summary["Unrestricted", ] - mle_summary["CompSymm", ])
+stat_val <- stat_val %>% select(c("logLik", "df"))
+
+p_val_1 <- 1 - pchisq(stat_val[1, 1], df=stat_val[1, 2])
+p_val_2 <- 1 - pchisq(stat_val[2, 1], df=stat_val[2, 2])
+
+stat_val <- stat_val %>% mutate(p_val = c(p_val_1, p_val_2))
+rownames(stat_val) <- c("Unrestr vs. FixedVar", "Unrestr vs. CompSymm")
+stat_val
+```
+
+At the significance level $\alpha = 0.01$ we fail to reject both hypotheses, however based on AIC and RSE obtained for the models I would decide to use uncontrained model.  
+
+### Assignment 5
+
+Plot the estimated means at each time point and their confidence intervals. Overlay these plots with the means and their confidence intervals not taking into account the correlations.
+
+```{r means_std_plot}
+lead.uncorrelated <- gls(treatment_results~time.cat,
+                     weights=varIdent(form= ~1 | time.cat),
+                     data=lead.longit)
+
+rbind(confint(lead.uncorrelated), confint(lead.cat)) %>%
+  as.data.frame() %>%
+  mutate(time = factor(rep(c("T0", "T1", "T2", "T3"), 2)),
+         model = factor(rep(c("Uncorrelated", "Unrestricted"), rep=2, each=4)),
+         mean = c(lead.uncorrelated$coefficients, lead.cat$coefficients)) %>%
+  select(lwr="2.5 %", upr="97.5 %", everything()) %>%
+  ggplot(aes(x=time, y=mean, color=model)) + 
+  geom_errorbar(aes(ymin=lwr, ymax=upr), position=position_dodge(0.1)) + 
+  geom_point(position=position_dodge(0.1)) +
+  ggtitle("Unrestricted prediction vs Uncorrelated prediction")
+```
+
+Surprisingly when autocorrelation of the errors is not taken under consideration, mean responses doesn't change. What is different is the standard deviations at each time point, moreover they seem to be overestimated with simplified model.
+
+### Assignment
+
+Estimate the mean difference between the 2nd and 3rd time points.  Is it significant?
+ 
+I'm assuming that 2nd and 3rd time points refers to T1 and T2 respectively. Null hypothesis is $H_0: \beta_1 = \beta_2$ which can be represented as $H_0: L\beta = 0$, where $L = (0, 1, -1, 0)$. Theroem that was given on a lecture states that:
+$$
+L\beta \sim N(L\beta, LCov(\hat{\beta})L^T)
+$$
+
+We can now use Wald test to check the hypothesis. Test statistic is given by:
+$$
+Z = \frac{L\hat{\beta}}{\sqrt{LCov(\hat{\beta})L^T}} \sim N(0, 1)
+$$
+```{r wald_test}
+cov_beta <- lead.cat$varBeta
+beta <- matrix(lead.cat$coefficients, nrow=4, ncol=1)
+L <- matrix(c(0, 1, -1, 0), nrow=1, ncol=4)
+Z <- abs((L %*% beta) / sqrt(L %*% cov_beta %*% t(L)))
+
+p_val <-  1 - 2 * pnorm(Z, lower.tail = F)
+paste("Wald test p-value", p_val)
+```
+Such a big p-value suggest that there is no basis to reject $H_0$.
