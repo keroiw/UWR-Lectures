@@ -1,0 +1,175 @@
+---
+title: "Complex Data 2"
+knit: (function(input_file, encoding) {
+  out_dir <- '../docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'ComplexData2.html'))})
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F)
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(nlme)
+```
+
+### Wald test
+
+We are given hypothesis $H_0: \beta_3 = 0$ vs $H_1: \beta_3 \neq 0$. The univariate Wald statistic:
+$$
+Z = \frac{\hat{\beta}_3}{\sqrt{\hat{Var}(\hat{\beta_3})}} \sim N(0, 1) \text{ under } H_0
+$$
+
+In matrix notation it can be written as:
+$$
+Z = \frac{L^T\hat{\beta}}{\sqrt{L^T \hat{Cov}(\hat{\beta}) L}}
+$$
+
+Where:
+* $L$ is test matrix
+* $\hat{Cov}(\hat{\beta})$ is an estimate of covariance matrix of $\hat{\beta}$
+* $H_0: L\beta = 0$
+
+If the test is defined as it was done in question, then we have that 
+$$
+L = (0, 0, 0, 1)^T
+$$
+hence it is $1 \times 4$ vector.
+
+If we were to test that blood lead level is the same at week 4 and week 6, then it can be translated into $\beta_2 = \beta_3$ which is equivalent to $\beta_2 - \beta_3 = 0$. This hypothesis yields:
+$$
+L = (0, 0, 1, -1)^T
+$$
+
+### Likelihood ratio test
+
+Regression model for the lead exposure: 
+$$
+Y_{ij} = \beta_1 + \beta_2 X_{2ij} + \beta_3 X_{3ij} + \beta_4 X_{4ij} + e_{ij}
+$$
+where $i \in \{1, ..., 50\}$, $j \in \{1, ..., 4\}$ and additionally $X_{kij}$ is indicator of k-th week, where $k \in \{1, 4, 6\}$ excluding baseline. 
+
+If $H_0: \beta_2 = \beta_3 = \beta_4 = 0$, then reduced model from alternative hypothesis is $Y_{ij} = \beta_1 + \epsilon_{ij}$. The test statistics is given as:
+$$
+LRT = 2(\hat{l}_{full} - \hat{l}_{reduced}) \sim \chi^2_r \text{ under } H_0
+$$
+Degrees of freedom of LRT statistic ($r$) is the difference between number of parameters in the full and reduced model. In case of give example we have that $r = 4 - 3 = 1$
+
+### Working with moo dataset
+
+```{r read_dataset}
+moo_data <- read.table("/home/wiorek/Desktop/UWR-Lectures/ComplexData/moo", header=F)
+moo_data <- moo_data %>% 
+            select(id=V1, diet=V6, everything()) %>% 
+            gather(key="key", value="protein", -c("id", "diet")) %>%
+            select(-key) %>%
+            arrange(id) %>%
+            mutate(time = factor(rep(1:4, 52)),
+                   id = factor(id),
+                   protein = as.numeric(protein),
+                   diet = factor(diet)) %>%
+            drop_na()
+```
+
+```{r diets_error_plot}
+moo_data %>% 
+  group_by(diet, time) %>%
+  summarize(sd = sd(protein), protein = mean(protein)) %>% 
+  ungroup() %>%
+  ggplot(aes(x=time, y=protein, color=diet, group=diet)) + 
+  geom_errorbar(aes(ymin=protein-sd, ymax=protein+sd), position=position_dodge(0.1)) + 
+  geom_point(position=position_dodge(0.1)) +
+  geom_line() + 
+  ggtitle("Overview of the trends in the data")
+```
+
+```{r gls_model}
+moo.unrestr <- gls(protein ~ diet*time,
+                    correlation=corSymm(form= ~1|id),
+                    weights=varIdent(form= ~1|time),
+                    data=moo_data)
+summary(moo.unrestr)
+```
+
+It's worth to notice that the mean of proteins for first measurement is considered as a baseline. Another interesting observation is that there are no reasons to claim the difference between the trajectories as we fail to reject the hypothesis $diet3 = diet3*time2 = diet3*time3=diet3*time4 = 0$.
+
+It turns out that testing procedures for such models can be automated with anova function.
+```{r anova_unrestricted}
+anova(moo.unrestr)
+```
+
+The results contain information about two tests for main effects (row 2 and 3) and test for parallelism (row 4)
+
+1. Hypothesis test if there is a diet effect. Let's suppose that $G_i$ is indicator of i-th group and $j$ is indicator of j-th measurement. If $\Delta_i = \mu_{G1, j} - \mu_{G2, j}$ the test can be stated as: $H_0: \Delta_1 = \Delta_2 = ... = \Delta_p = 0$. In this case we fail to reject null hypothesis. It can observed on trends plot as trajectories are close to each other. 
+2. Hypothesis test if there is a time effect. For a given model test can be stated as: $H_0: time2 = time3 = time4 = 0$. In this case there are basis to reject the null hypothesis. Again it can be observed on the trends plot. If the null hypothesis were true, then trajectories shouldn't depend on time, but in this case we observe clear descending trend. 
+3. Hypothesis test if there is group-by-time interaction. For a given model test can be stated as: $H_0: diet3:time2 = diet3:time3 = diet3:time4 = 0$. Again there are basis to reject the null hypothesis. If the null hypothesis were true the trajectories should be parallel. It is observable on obtained graph. 
+
+Above tests lays foundations for the ideas of model simplification. For instance we can safely assume that there is no group-by-time interaction and diet-time interaction can be removed.
+```{r no_group_by_time_model}
+moo.no_group_by_time <- gls(protein ~ diet + time,
+                             correlation=corSymm(form= ~1|id),
+                             weights=varIdent(form= ~1|time),
+                             data=moo_data)
+summary(moo.no_group_by_time)
+```
+
+Let's coll anova function one more time on reduced model:
+```{r anova_reduced}
+anova(moo.no_group_by_time)
+```
+
+1. There is clear evidence to reject $H_0: diet3 = 0$
+2. There are no basis to reject $H_0: time2=time3=time4=0$
+
+Another test that might be usefull is likelihood ratio test, because the latest model is the reduced version of the model with interaction terms. If we want to test the importance of the interaction terms we get the following results:
+```{r likelihood_interaction_terms}
+moo.unrestr_mle <- gls(protein ~ diet*time,
+                        correlation=corSymm(form= ~1|id),
+                        weights=varIdent(form= ~1|time),
+                        data=moo_data,
+                        method="ML")
+
+moo.no_group_by_time_mle <- gls(protein ~ diet + time,
+                             correlation=corSymm(form= ~1|id),
+                             weights=varIdent(form= ~1|time),
+                             data=moo_data,
+                             method="ML")
+
+anova(moo.unrestr_mle, moo.no_group_by_time_mle)
+```
+P-value for likelihood ratio test is 0.3214 so we fail to reject null hypothesis that the interaction terms are not important. 
+
+### Assignment 2
+
+```{r general_moo}
+full_moo_data <- read.table("/home/wiorek/Desktop/UWR-Lectures/ComplexData/full_moo", header=T) %>%
+                 mutate(Time = factor(Time))
+```
+
+#### Write out the most general model
+
+```{r general_moo_model}
+full_moo.unrestr <- gls(protein ~ Diet*Time,
+                        correlation=corSymm(form= ~1|Cow),
+                        weights=varIdent(form= ~1|Time),
+                        data=full_moo_data)
+summary(full_moo.unrestr)
+```
+#### Test for parallelism
+
+```{r anova_full_moo}
+anova(full_moo.unrestr)
+```
+
+There are no basis to reject the null hypothesis that iteraction terms are important, hence we conclude that the trajectories should be parallel.
+
+#### Test for main effects
+
+1. We fail to reject the null hypothesis $H0: Time2=Time3=Time4$
+2. There are no basis to reject the null hypothesis $H0:Dietbarley+lupins = Dietlupins = 0$
+
+
