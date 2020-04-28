@@ -1,11 +1,8 @@
 ---
 title: "Complex data - Homework 1"
-knit: (function(input_file, encoding) {
-  out_dir <- '../docs';
-  rmarkdown::render(input_file,
- encoding=encoding,
- output_file=file.path(dirname(input_file), out_dir, 'ComplexData1.html'))})
-output: html_document
+author: "Błażej Wiórek"
+knit: (function(input_file, encoding) { out_dir <- '../docs'; rmarkdown::render(input_file,
+  encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'ComplexData1.html'))})
 ---
 
 ```{r setup, include=FALSE}
@@ -18,12 +15,10 @@ knitr::opts_chunk$set(echo = F)
 
 ### Background
 
-Background:
-
 * Exposure to lead is associated with deficits in cognitive ability.
-* Children with high lead levels can be treated with injectionswhich generally require hospitalization.
-* In this study, investigators are interested in assessing a newagent,succimer, which can be given orally.
-* Blood lead levels were measured at baseline, and after 1, 4 and6 weeks of follo
+* Children with high lead levels can be treated with injections which generally require hospitalization.
+* In this study, investigators are interested in assessing a new agent, succimer, which can be given orally.
+* Blood lead levels were measured at baseline, and after 1, 4 and 6 weeks of follow-up.
 
 ### Treatment of Lead-Exposed Children
 
@@ -47,7 +42,7 @@ general_summary <- apply(lead[,2:5], 2, summary)
 as.data.frame(general_summary)
 ```
 
-It seems that blood lead levels drop significantly between measeurement one and two. Then it starts to grow steadily. Standard deviation grows from measurment to measurment, hence at first glance there is no reason to assume that the variance is constant. These observations were validated via box plots. 
+It seems that the mean blood lead levels drop significantly between measeurement one and two. Then they start to grow steadily. Standard deviation grows from measurment to measurement, hence at first glance there is no reason to assume that the variance is constant. These observations were visualized with box plots below. 
  
 ```{r chceck_variance}
 outlier_predicate <- function(x) {
@@ -73,7 +68,7 @@ An interesting observation is that the heteroscedasticity is mainly due to outli
 
 * How would you formally test whether the differences in means are significant?
 
-We want to compare the differences in means at four time points, hence the basic idea to use ANOVA.
+We want to compare the differences in means at four time points, hence the basic idea is ANOVA.
 ```{r ANOVA}
 lead.long_fct <- lead.long %>% 
                  mutate(treatment = factor(treatment, order=T)) %>% 
@@ -103,7 +98,7 @@ W <- t(L %*% est) %*% solve(L %*% var_mtrx %*% t(L)) %*% (L %*% est)
 p_val <- 1-pchisq(W, df=3)
 paste("Test stat", round(W, 3), "P-value for Wald test: ", p_val[1, 1])
 ```
-Obtained p-value is almost zero hence we conclude that there is basis to reject $H_0$.
+Obtained p-value is almost zero hence we reject $H_0$.
 
 ## Introduction to GLS
 
@@ -124,17 +119,17 @@ In ordinary least squares we assume homoscedestaticity and lack of correlation. 
 1. Homoscedestaticity: $Var(\epsilon_i | X_i) = \sigma^2$, where $\sigma^2$ represents constant variance
 2. Lack of autocorrelation: $Cov(\epsilon_i, \epsilon_j | X_i, X_j) = 0$, where $i \neq j$
 
-In case of repeated measures these assumptions are not valid. There are simple intuitions that can explain this phenomena. 
+In case of repeated measurments both asumptions are often viloted. There are simple intuitions that can explain this phenomena. 
 
-1. Variance can change in time because blood lead levels may change due to different responses of the patients.
+1. Variance can change in time because blood lead level may change due to different responses of the patients.
 2. Correlation tends to be positive because if blood lead level was relatively high at the beginning, it will often remain so during the experiment. 
 
-General Least Squares handle this problem but there are two additional parameters of the model that needs to be specified. Correlation describes the within-group correlation structure and weights describes the within-group heteroscedasticity structure. In below example both correlation and variance structures are unrestricted which means that the only requirements for these matrices is that they need to be summetric.
+General Least Squares can handle violation of both assumptions, but it requires two additionall model parameters. Correlation describes the within-group correlation structure and weights describes the within-group heteroscedasticity structure. In example below both correlation and variance structures are unrestricted which means that the only requirements for these matrices is that they need to be symmetric.
 
 There are two important details:
 
-1. Correlation is linked to id, because autocorrelation is expected within single patient measurement.
-2. Variation is linked to time.cat beacause it is expected that variance may vary between different time points
+1. Correlation is linked to id, because autocorrelation is expected within single patient measurements.
+2. Variation is linked to the time.cat beacause it is expected that variance may vary between different time points.
 
 ```{r model_reml}
 lead.cat <- gls(treatment_results~time.cat,
@@ -146,13 +141,13 @@ summary(lead.cat)
 
 ### Assignment 1
 
-Based on the output provided, summary(lead.cat), estimate the error variance-covariance matrix $\Sigma$.
+Based on the output provided by summary(lead.cat), estimate the error variance-covariance matrix $\Sigma$.
 
 Link between correlation and variance is given by:
 $$
 Corr(X, Y) \sigma_X \sigma_Y = Cov(X, Y)
 $$
-Information in "Parameter estimates" is equivalent of: $\frac{rse(T_0)}{rse(T_0)}$, $\frac{rse(T_1)}{rse(T_0)}$, $\frac{rse(T_2)}{rse(T_0)}$, $\frac{rse(T_3)}{rse(T_0)}$ where rse refers to residual standard error. It's obvious that it's sufficient to obtain $rse(T_0)$ in order to compute $rse(T_i)$. Fortunatelly $rse(T_0)$ is given as "Residual standard error", hence $rse(T_0)=5.020936$. Now it's possible to use link function between correlation and covariance as $\hat{\sigma} = rse$ and entries of correlation matrix were given in the summary. 
+Information in "Parameter estimates" is equivalent of: $\frac{rse(T_0)}{rse(T_0)}$, $\frac{rse(T_1)}{rse(T_0)}$, $\frac{rse(T_2)}{rse(T_0)}$, $\frac{rse(T_3)}{rse(T_0)}$ where rse refers to residual standard error. It's obvious that it's sufficient to obtain $rse(T_0)$ in order to compute $rse(T_i)$. Fortunatelly $rse(T_0)$ is given as "Residual standard error", hence $rse(T_0)=5.020936$. Now it's possible to use link function between correlation and covariance as $\hat{\sigma} = rse$ and entries of the correlation matrix were given in the summary. 
 
 ```{r model_reml_sigma}
 get_cov_mtrx <- function(rse, corr_mtrx) {
@@ -175,7 +170,7 @@ sigma_reml <- get_cov_mtrx(rse_reml, corr_reml)
 sigma_reml
 ```
 
-In order to check if presented formula work as expected, obtained results were converted back to correlation matrix and compared to output of the summary. 
+In order to check if presented formula work as expected, obtained results were converted back to correlation matrix and compared against output of the summary. 
 
 ```{r corr_check_reml}
 cov2cor(sigma_reml)
@@ -209,7 +204,7 @@ colnames(reml_mle) <- c(paste("T_", 1:4, "_reml"), paste("T_", 1:4, "_mle"))
 reml_mle
 ```
 
-As expected, variance estimated via mle is systematically smaler than variance obtained by REML. 
+As expected, variance estimated via mle is systematically smaller than the variance obtained by REML. 
 
 ```{r reml_mle_comparison_plot}
 data.frame(reml = diag(sigma_reml), mle = diag(sigma_mle)) %>% 
@@ -226,14 +221,14 @@ Based on the $\Sigma$ estimates what might be reasonable assumptions regarding t
 
 There are two things that are worth to check:
 
-1. Homoscedestaticity - it was done with box plot and computation of standard deviation at the beginning of the report. It turns out that variances within groups are generally quite similar, however due to outliers they are streched.
-2. Lack of autocorrelation - as it was already mentioned that it's rather common for repeated measures to be positively correlated. Correlation matrix below ensure that this scenario is present in the dataset.
+1. Homoscedestaticity - it was already done with box plot and computation of standard deviation at the beginning of the report. It turns out that variances within groups are generally quite similar, however due to outliers they are streched.
+2. Lack of autocorrelation - as it was already mentioned, it's rather common for repeated measures to be positively correlated. Correlation matrix below ensure that this problem is present in the dataset.
 
 ```{r treatment_corr}
 lead %>% select(-id) %>% cor()
 ```
 
-In order to visualize autocorrelation it might be interesting to plot trajectories for each patient during the treatments. In order to keep plot clean, 10 patients were sampled from the data.
+In order to visualize autocorrelation it might be interesting to plot trajectories for each patient during the treatments. In order to keep plot clean, 9 patients were sampled from the data.
 
 ```{r trajectories}
 lead.longit %>% 
@@ -246,15 +241,15 @@ lead.longit %>%
 
 It's clear that blood lead level dumps from treatment on to treatment three and then grow again. This pattern was already observed on box-plot in the beginning of the report. 
 
-The conclusion is that the model with unrestricted correlation and varaince should be the best choice. In this case the number of parameters to estimate is $10 + 4 = 14$ (10 is number of parameters in $\Sigma$ and 4 is number of treatments).
+The conclusion is that the model with unrestricted correlation and varaince should be the best choice. In this case the number of parameters to estimate is $10 + 4 = 14$ (10 is number of parameters in $\Sigma$ and 4 is the number of parameters linked to the treatments).
 
 ### Assignment 4
 
-Choose at least 2 different combinations of correlation and weights to simplify the $\Sigma$ estimation. Compare them with the “unstructured” variance-covariance matrix in part 1
+Choose at least 2 different combinations of correlation and weights to simplify the $\Sigma$ estimation. Compare them with the “unstructured” variance-covariance matrix in part 1.
 
 **Assume constant varince**:
 
-In this case it is assumed that the variance is contant in each time point. As a result $\Sigma$ has equal values on the diagonal ($\sigma_{jj} = \sigma_{ii}$). It reduces the number of parameters to $7 + 4 = 11$. Assuming constant varaince is the same as assuming homoscedastic errors.
+In this case it is assumed that the variance is contant in each time point. As a result $\Sigma$ has equal values on the diagonal ($\sigma_{jj} = \sigma_{ii}$). This assumption reduces the number of parameters to $7 + 4 = 11$. It's worth to note that this is equivalent to the assumption of homoscedastic errors.
 
 ```{r compund_weights}
 lead.fixed_weights <- gls(treatment_results~time.cat,
@@ -272,7 +267,7 @@ sigma_var_const
 
 **Assume constant varince and uncorrelated errors**:
 
-In this case it is assumed that the error $\epsilon_{ij}$ can be decomposed into subject effect $b_i$ and within subject measurement error $w_{ij}$. The main idea is that the patients naturally differ in terms of response to the treatment $b_i$ and some random noise is involved in measurements $w_{ij}$. Under these assumption matrix has the form known as "compound symmetry":
+In this case it is assumed that the errors $\epsilon_{ij}$ can be decomposed into subject effect $b_i$ and within subject measurement error $w_{ij}$. The main idea is that the patients naturally differ in terms of response to the treatment ($b_i$) and some random noise is involved in measurements ($w_{ij}$). Under these assumption matrix has the form known as "compound symmetry":
 $$
 \begin{pmatrix}
 \sigma^2_b + \sigma^2_w & \sigma^2_b & \sigma^2_b & \sigma^2_b \\
@@ -324,9 +319,9 @@ create_model_summary(list(lead.cat, lead.fixed_weights, lead.compound),
                      model_names)
 ```
 
-As expected unconstrained model has the best preformance. RSE and AIC increase when correlation and variance is constrained. An interesting point is that $BIC(fixed\_var) > BIC(fixed\_compSymm)$, but it happens because BIC strongly penalize as the amount of parameters increase. 
+As expected unconstrained model has the best preformance. RSE and AIC increase when correlation and variance is constrained. An interesting point is that $BIC(fixed\_var) > BIC(fixed\_compSymm)$, but it happens because BIC penalize strongly if the amount of parameters increase. 
 
-Formally ratio likelihood test might be perfomed as all these model are nested. The caution must be given, because in order to carry this procedure the models must be fitted with MLE procedure. It happens because when model is fitted with REML, then REML likelhoods don't involve the regression parameters. 
+Likelihood ratio test might be perfomed because all these model are nested. The caution must be given, because in order to carry this procedure the models must be fitted with MLE procedure. It happens because when model is fitted with REML, then REML likelhoods don't involve the regression parameters. 
 
 ```{r models_mle}
 lead.fixed_weights_mle <- gls(treatment_results~time.cat,
@@ -344,9 +339,9 @@ mle_summary <- create_model_summary(list(lead.cat_mle, lead.fixed_weights_mle, l
 mle_summary[, c("logLik", "df")]
 ```
 
-Likelohood ratio test tests if the parameters of unresticted model are truly important. Test statistic is given as:
+Likelohood ratio test tests if the parameters of unresticted model are truly important. Test statistic is given by:
 $$
-LRT = 2(\hat{l}_{unrest} - \hat{l}_{red}) \sim \chi^2_{df_{unrest} - df_{red}}
+LRT = 2(\hat{l}_{unrest} - \hat{l}_{red}) \sim \chi^2_{df_{unrest} - df_{red}} \text{ under } H_0
 $$
 
 ```{r lrt_table}
@@ -362,7 +357,7 @@ rownames(stat_val) <- c("Unrestr vs. FixedVar", "Unrestr vs. CompSymm")
 stat_val
 ```
 
-At the significance level $\alpha = 0.01$ we fail to reject both hypotheses, however based on AIC and RSE obtained for the models I would decide to use uncontrained model.  
+At the significance level $\alpha = 0.01$ we fail to reject both hypotheses, however based on AIC and RSE obtained for the models I would decide to use unconstrained model.  
 
 ### Assignment 5
 
@@ -385,20 +380,20 @@ rbind(confint(lead.uncorrelated), confint(lead.cat)) %>%
   ggtitle("Unrestricted prediction vs Uncorrelated prediction")
 ```
 
-Surprisingly when autocorrelation of the errors is not taken under consideration, mean responses doesn't change. What is different is the standard deviations at each time point, moreover they seem to be overestimated with simplified model.
+Surprisingly when autocorrelation of the errors is not taken under consideration, mean responses doesn't change. What is different is the confidence intervals at each time point, moreover they seem to be overestimated by the simplified model.
 
-### Assignment
+### Assignment 6
 
 Estimate the mean difference between the 2nd and 3rd time points.  Is it significant?
  
-I'm assuming that 2nd and 3rd time points refers to T1 and T2 respectively. Null hypothesis is $H_0: \beta_1 = \beta_2$ which can be represented as $H_0: L\beta = 0$, where $L = (0, 1, -1, 0)$. Theroem that was given on a lecture states that:
+I'm assuming that 2nd and 3rd time points refers to T1 and T2 respectively (as I'm counting from 0). Null hypothesis is $H_0: \beta_1 = \beta_2$ which can be represented as $H_0: L\beta = 0$, where $L = (0, 1, -1, 0)$. Theorem that was given in the lecture states that:
 $$
 L\beta \sim N(L\beta, LCov(\hat{\beta})L^T)
 $$
 
 We can now use Wald test to check the hypothesis. Test statistic is given by:
 $$
-Z = \frac{L\hat{\beta}}{\sqrt{LCov(\hat{\beta})L^T}} \sim N(0, 1)
+Z = \frac{L^T\hat{\beta}}{\sqrt{L^T Cov(\hat{\beta}) L}} \sim N(0, 1)
 $$
 ```{r wald_test}
 cov_beta <- lead.cat$varBeta
@@ -409,4 +404,4 @@ Z <- abs((L %*% beta) / sqrt(L %*% cov_beta %*% t(L)))
 p_val <-  1 - 2 * pnorm(Z, lower.tail = F)
 paste("Wald test p-value", p_val)
 ```
-Such a big p-value suggest that there is no basis to reject $H_0$.
+Such a big p-value suggests that there is no basis to reject $H_0$.
