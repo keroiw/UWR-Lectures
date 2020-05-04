@@ -1,0 +1,324 @@
+---
+title: "BA2"
+author: "Błażej Wiórek"
+date: "5/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+knitr::opts_chunk$set(echo = F)
+```
+
+## Power of optimal test below threshold $\sqrt{2logp}$
+
+Recall the problem denoted as 'needle in the haystack problem' that refers to the situation when we have p iid random variables $X_i \sim N(\mu_i, 1)$ and the task is to test the globall null hypothesis $H_{0,i}: \mu_i = 0$, $i\in\ \{1, ..., p\}$. In the previous report Bonferroni procedure was tested against t's performence when there is only one signal $\mu_i \neq 0$ and it's strength is close (above and below) to threshold $\sqrt{2logp}$. In this dicussion the main area of interest is answering the question: are we able to do better than Bonferroni when there is a single $\mu_i \neq 0$. The better means that we control the probability of Type I error at level $\alpha$ and increase power in the same time. This can be done via comparison to optimal test defined by Neyman-Pearson Theorem.
+
+**Neyman-Pearson Theorem:**
+Let $X_1, X_2, ..., X_n$ denote a random sample from a distribution that has pdf or pmf $f(x \theta)$. Then the likelihood of $X_1, X_2, ..., X_n$ is
+$$
+L(\theta; X)= \Pi_{i=1}^nf(x_i;\theta) \text{, for } X^T=(X_1, ..., X_n)
+$$
+
+Let $\theta'$ and $\theta''$ be distinct fixed values of $\theta$ so that $\Omega = \{\theta: \theta=\theta', \theta''\}$, and let k be a positive number. Let C be a subset of the sampe space such that:
+
+$$
+\text{(a) } \frac{L(\theta')}{L(\theta'')} \leq k \text{ for each point } x \in C
+$$
+
+$$
+\text{(b) } \frac{L(\theta')}{L(\theta'')} \geq k \text{ for each point } x \in C^c
+$$
+
+$$
+\text{(c) } \alpha = \mathbb{P}_{H_0}[X \in C]
+$$
+
+Then C is a best critical region of size $\alpha$ for testing the simple hypothesis $H_0: \theta=\theta'$ against the alternative simple hypothesis $H_1: \theta=\theta''$.
+
+
+### Assignment 1:
+
+Let $L(X) = \frac{1}{p}exp(X_i \mu - \frac{\mu^2}{2})$ be the statistic of the Neyman-Pearson test for the "needle in haystack" problem and $\tilde{L}(X)=\frac{1}{p}\sum_{i=1}^p (exp(X_i\mu-\frac{\mu^2}{2})\mathbb{1}_{\{X_i < \sqrt{2logp}\}})$ be its truncated version. For each of the settings $\mu=(1 + \epsilon)\sqrt{2logp}$ with $\epsilon \in \{-0.3, -0.2, -0.1\}$ and $p \in \{5000, 50000, 500000\}$
+
+$L(X)$ is the likelihood, because $f_0(x) = \Pi^p_{i=1} \frac{1}{\sqrt{2\pi}}{e^{-\frac{1}{2}x_i^2}}$ and $f_1(x) = \frac{1}{p}\sum^p_{i=1} \frac{1}{\sqrt{2\pi}} e^{-\frac{1}{2}(x_i^2-\mu)} \Pi^p_{i > 1} \frac{1}{\sqrt{2\pi}}{e^{-\frac{1}{2}x_i^2}}$, hence $L = \frac{f_1}{f_0}$. Without loss of generality it was assumed that $X_1 \sim (\mu, 1)$.
+
+#### a) Estimate $P_{H_0}(L(X) \neq \tilde{L}(X))$
+
+Due to independence of $X_i$ it's easy to get the true probablility, because:
+$$
+\mathbb{P}_{H_0}(L(X) \neq \tilde{L}(X)) = 1 - \mathbb{P}_{H_0}(L(X) = \tilde{L}(X)) = 1 - [\mathbb{P}(X_1 < \sqrt{2logp}]^n
+$$
+
+```{r neq_true}
+#p <- 1000
+#epsilon <- -0.3
+#mu <- (1 + epsilon)*sqrt(2*log(p))
+get_neq_proba <- function(p, mu) {1 - pnorm(sqrt(2*log(p)))^p}
+```
+
+```{r neq_est}
+exp_f <- function(X, mu) {exp(X*mu - mu^2 / 2)}
+
+compute_likelihood <- function(p, mu) {
+  X <- rnorm(p)
+  repl_idx <- which(X >= sqrt(2*log(p)))
+  L <- exp_f(X, mu)
+  L_trim <- L
+  L_trim[repl_idx] <- 0
+  data.frame(L=sum(L)/p, L_trim=sum(L_trim)/p)
+}
+
+rep <- 500
+
+estimate_neq <- function(rep, eps, p) {
+  mu <- (1 + eps)*sqrt(2*log(p))
+  df <- dplyr::bind_rows(replicate(rep, compute_likelihood(p=p, mu=mu), F))
+  sum(df$L != df$L_trim)/rep
+}
+
+
+neq_experiment <- function(rep, eps, p) {
+  mu <- (1 + eps)*sqrt(2*log(p))
+  neq_est <- estimate_neq(rep, eps, p)
+  true_prob <- get_neq_proba(p, mu)
+  data.frame(eps, p, Est_P=neq_est, True_P=true_prob)
+}
+
+
+epsilons <- rep(c(-0.3, -0.2, -0.1), 3)
+p <- rep(c(5000, 50000, 500000), each=3)
+neq_prob <- dplyr::bind_rows(mapply(neq_experiment, 
+                                    rep=rep, 
+                                    eps=epsilons, 
+                                    p=p, 
+                                    SIMPLIFY=F))
+```
+
+
+```{r neq_plot}
+neq_prob %>% 
+  gather(key="method", value="value", -c("eps", "p")) %>%
+  ggplot(aes(x=p, y=value, color=method)) +
+  geom_point() +
+  scale_x_log10() + 
+  facet_grid(. ~ eps) + 
+  ggtitle("Probablility of difference between proposed statistics")
+```
+
+Probablility  of $L(X) = \tilde{L}(X)$ is low and descending when $p$ grows. It can be concluded that $\sqrt{2logp}$ grows a little faster then the quantiles of $|Z(\frac{\alpha}{2})|$ for $\alpha=0.05$. This result match those that were obtained in report 1 - assignment 2.  
+
+#### b) Calculate the sample mean and sample variance of $L(X)$ and $\tilde{L(X)}$
+
+By the preposition given during the lecture if $\mu^{(p)} = (1-\epsilon)\sqrt{2logp}$, then $L \xrightarrow{\mathbb{P}} 1$. 
+
+Given preposition state that the bigger the number of hypothesis, the less variability is associated with statistic $L$. This result provides information on the expected results from the experiments b)-d). 
+
+* b) Mean converges to 1 and variance converges to 0 as p grows. 
+* c) Maximum of $L(X)$ and $\tilde{L}(X)$ should converge to 1, but care must be taken as the convergence is due to probability.
+* d) Because $L(X)$ converges to 1, the quantile will be shrunken towards 1 as well.
+
+```{r mean_var_estimate}
+estimate_stat <- function(rep, eps, p) {
+  mu <- (1 + eps)*sqrt(2*log(p))
+  df <- dplyr::bind_rows(replicate(rep, compute_likelihood(p=p, mu=mu), F))
+  #print(df)
+  vars <- apply(df, 2, var)
+  means <- apply(df, 2, mean)
+  data.frame(eps, p,
+             mean_L=means[1], 
+             mean_L_trim=means[2], 
+             var_L=vars[1], 
+             var_L_trim=vars[2])
+}
+
+estimate_stat <- dplyr::bind_rows(mapply(estimate_stat, 
+                                         rep=rep, 
+                                         eps=epsilons, 
+                                         p=p, 
+                                         SIMPLIFY=F))
+```
+
+
+```{r plot_est_stat_mean}
+estimate_stat %>% 
+  select(-contains("var")) %>%
+  gather(key="statistic", value="value", -c("eps", "p")) %>%
+  ggplot(aes(x=p, y=value, color=statistic)) + 
+  geom_line() +
+  scale_x_log10() + 
+  facet_grid(.~eps) + 
+  ggtitle("Mean of NP statistic") + 
+  geom_hline(yintercept=1, linetype='dashed')
+```
+
+```{r plot_est_stat_var}
+estimate_stat %>% 
+  select(-contains("mean")) %>%
+  gather(key="statistic", value="value", -c("eps", "p")) %>%
+  ggplot(aes(x=p, y=value, color=statistic)) + 
+  geom_line() +
+  scale_x_log10() + 
+  facet_grid(.~eps) + 
+  ggtitle("Variance of NP statistic") + 
+  geom_hline(yintercept=0, linetype='dashed')
+```
+
+#### c) Estimate the maximum of L(X) and L'(X)
+
+```{r min_max}
+min_max <- function(rep, eps, p) {
+  mu <- (1 + eps)*sqrt(2*log(p))
+  df <- dplyr::bind_rows(replicate(rep, compute_likelihood(p=p, mu=mu), F))
+  data.frame(eps, p,
+             min_L=min(df[, 1]), 
+             min_L_trim=min(df[, 2]), 
+             max_L=max(df[, 1]), 
+             max_L_trim=max(df[, 2]))
+}
+min_max <- dplyr::bind_rows(mapply(min_max, 
+                                   rep=rep, 
+                                   eps=epsilons, 
+                                   p=p, 
+                                   SIMPLIFY=F))
+```
+
+
+```{r min_max_plot}
+min_max %>%
+  gather(key="statistic", value="value", -c("eps", "p")) %>%
+  ggplot(aes(x=p, y=value, color=statistic)) + 
+  geom_line() +
+  scale_x_log10() + 
+  facet_grid(.~eps) + 
+  ggtitle("Convergence of minimum and maximum of NP statistic")+ 
+  geom_hline(yintercept=1, linetype='dashed')
+```
+
+#### d) Report 0.95 quantile of L(X) and L'(X)
+
+```{r quantile}
+quantile_f <- function(rep, eps, p) {
+  mu <- (1 + eps)*sqrt(2*log(p))
+  df <- dplyr::bind_rows(replicate(rep, compute_likelihood(p=p, mu=mu), F))
+  data.frame(eps, p,
+             q_L=quantile(df[, 1], 0.95), 
+             q_L_trim=quantile(df[, 2], 0.95))
+}
+quantile_df <- dplyr::bind_rows(mapply(quantile_f, 
+                                       rep=rep, 
+                                       eps=epsilons, 
+                                       p=p, 
+                                       SIMPLIFY=F))
+```
+
+
+```{r quantile_plot}
+quantile_df %>%
+  gather(key="statistic", value="value", -c("eps", "p")) %>%
+  ggplot(aes(x=p, y=value, color=statistic)) + 
+  geom_line() +
+  scale_x_log10() + 
+  facet_grid(.~eps) + 
+  ggtitle("Convergence of .95 quantile of NP statistic")+ 
+  geom_hline(yintercept=1, linetype='dashed')
+```
+
+### Assignment 2
+
+For p=5000 and p=50000 estimate the critical values of the optimal Neyman-Pearson test for the needle in the haystack problem against alternatives:
+
+* $\mu^{(p)} = 1.2\sqrt{2logp}$
+* $\mu^{(p)} = 0.8\sqrt{2logp}$
+
+Use the significance level $\alpha=0.05$. 
+
+Critical values for the scenario where $\mu^{(p)}=0.8\sqrt{2logp}$ were already obtained in the previous assignment (when computing quantiles). 
+
+```{r quantile_powerfull}
+epsilons_2 <- rep(c(0.2), 2)
+p_2 <- rep(c(5000, 50000))
+
+quantile_powerfull <- dplyr::bind_rows(mapply(quantile_f, 
+                                              rep=rep, 
+                                              eps=epsilons_2, 
+                                              p=p_2, 
+                                              SIMPLIFY=F))
+```
+
+
+```{r quantile_comparison}
+np_quantile <- quantile_df %>% 
+  filter((p==5000 | p==50000) & eps==-0.2) %>% 
+  rbind(quantile_powerfull)
+np_quantile
+```
+
+Rather obvious observation is that when strength of the signal $\mu$ is decreasing, then quantile of the likelihood statistic is growing, because the more $X_i$ are not in C (=> the likelihood is higher).
+
+### Assignment 3
+
+For $p=5000$ and $p=50000$ and $\alpha=0.05$ compare the power of the above Neyman-Pearson test with the power of the Bonferroni test when
+
+* a) $\mu_1 = 1.2\sqrt{2logp}$, $\mu_2=...=\mu_p=0$
+* b) $\mu_1=0.8\sqrt{2logp}$, $\mu_2=...=\mu_p=0$
+
+Bonferroni procedure test each $H_{0, i}$ at level $\frac{\alpha}{n}$. If p-values associated with i-th test is $p_i$, then bonferroni rejects global null if $min_i p_i \leq \frac{\alpha}{n}$.
+
+If the NP $\mu_1 = 1.2\sqrt{2logp}$, then we exepect that Neyman-Pearson test has full power. Let D be a critical region of size $\alpha$ associated with Bonferroni procedure. It was shown that Bonferroni procedure has full power above the threshold $\sqrt{2logp}$, hence $\mathbb{P}_{H_1}(max\{x_i\} > |z(\frac{\alpha}{n})|) \rightarrow 1$. It simply means that $\mathbb{P}_{H_1}(\text{ Type II Error }) \rightarrow 0$ and if $\gamma_C(\theta)$ is power function, then $\gamma_D(\mu) = \mathbb{P}_{H_A}(X \in C) \rightarrow 1$. By the Neyman-Pearson theorem we have that $\gamma_C(\mu) \geq \gamma_D(\mu)$, where C is critical region associated with Neuman-Pearson test. The conclusion is that we expect Neyman-Pearson to have a full power above the threshold $\sqrt{logp}$.
+
+```{r bonferroni_vs_NP}
+bonferroni_test <- function(X, alpha, p) {
+  bonferroni_thresh <- qnorm(1 - alpha / (2 * p))
+  # TRUE if H0 rejected
+  sum(X > bonferroni_thresh) > 0
+}
+
+np_test <- function(X, p_val, eps_val, mu) {
+  np_thresh <- (np_quantile %>% filter(p==p_val & eps==eps_val))$q_L
+  L <- sum(exp_f(X, mu))/p
+  sum(L > np_thresh) > 0
+}
+    
+test_sparse <- function(i, p, eps, alpha) {
+  mu <- (1 + eps)*sqrt(2 * log(p))
+  X <- rnorm(p)
+  X[1] <- (1+eps)*sqrt(2*log(p))
+  bonferroni <- bonferroni_test(X, alpha, p)
+  np <- np_test(X, p, eps, mu)
+  data.frame(bonferroni=bonferroni, neyman_pearson=np)
+}
+
+p <- 50000
+rep <- 1000
+sparse_above <- dplyr::bind_rows(lapply(1:rep, test_sparse, p=p, eps=0.2, alpha=0.05))
+sparse_below <- dplyr::bind_rows(lapply(1:rep, test_sparse, p=p, eps=-0.2, alpha=0.05))
+```
+
+```{r sparse_above}
+colSums(sparse_above)
+```
+
+```{r sparse_below}
+colSums(sparse_below)
+```
+
+Proposition from the lecture: Set threshold $T_n(\alpha)$ such that $\mathbb{P}_0(L \geq T_n(\alpha)) = \alpha$. Then
+$$
+\lim_{p \rightarrow \infty} \mathbb{P}(\text{Type II error}) = 1 - \alpha
+$$
+Threshold $T_n(\alpha)$ is a quantile that was obtained in the previous experiment. If above proposition is true then by the definition $\mathbb{P}_0(L \geq T_n(\alpha)) = \mathbb{P}(\text{Type I error}) = \alpha$, thus $\mathbb{P}(\text{Type I error}) + \mathbb{P}(\text{Type II error}) \rightarrow 1$. It's immediate that the Neyman-Pearson test has no power when $\mu < \sqrt{2logp}$. 
+
+In presented experiment it seems that Neyman-Pearson test performs better, because it has greater power. It happens because above proposition is an asymptotic result. As p grows the difference should vanish.
+
+
+
+
+
+
+
+
+
