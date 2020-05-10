@@ -1,0 +1,466 @@
+---
+title: "Modele liniowe - Sprawozdanie 4"
+author: "Błażej Wiórek"
+knit: (function(input_file, encoding) { out_dir <- '../docs'; rmarkdown::render(input_file,
+  encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'ZAML4.html'))})
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(MASS)
+library(pscl)
+library(purrr)
+require(gridExtra)
+knitr::opts_chunk$set(echo = F)
+```
+
+## Zadanie 1 - Wprowadzenie do problemu
+
+Chcemy zbadać związek pomiędzy liczbą wizyt w gabinecie lekarskim (zmienna zależna - ofp) i zmiennymi niezależnymi opisującymi pacjenta. Zmienne objaśniające mają następującą postać:
+
+* hosp - liczba pobytów w szpitalu
+* health - zmienna opisująca subiektywne odczucie pacjenta o jego zdrowiu
+* numchron - liczba przewlekłych stanów chorobowych
+* gender - płeć
+* school - liczba lat edukacji
+* privins - indykator opisujący to czy pacjent ma dodatkowe prywatne ubezpeczenie zdrowotne 
+
+
+## Zadanie 2 - Wstępna analiza
+
+**a)**: Narysuj histogram zmiennej "ofp". Czy wykres wskazuje na obecność zjawiska nadmiernej dyspersji i/lub inflacji w zerze?
+
+```{r load_data}
+data <- read.csv("DebTrivedi.csv")
+data <- data %>% dplyr::select("ofp", "hosp", "health", "numchron", "gender", "school", "privins")
+```
+
+**Inflacja w zerze**: Przedstawiony histogram sugeruje, że występuje zjawisko inflacji w zerze jako, że znaczna część obserwacji jest skupiona właśnie w tym punkcie.
+
+```{r zero_infl}
+data %>% 
+  ggplot(aes(x=ofp)) +
+  geom_histogram(binwidth=1) + 
+  ggtitle("Inflacja w zerze")
+```
+
+Warto dokładnie określić liczbe elementów zerowych:
+```{r n_zeros}
+data %>% filter(ofp == 0) %>% summarise(n()) %>% dplyr::select(n_zero_elements=`n()`)
+```
+
+**Nadmierna dyspersja**: Chcąc modelować $ofp$ za pomocą regresji Poissona należy założyć, że $\mathbb{E}[ofp] = Var[ofp] = \mu$. Wynika z tego, że jeśli chcemy sprawdzić czy występuje zjawisko nadmiernej dyspersji, podstawową procedurą jest porównanie wspomnianych statystyk.
+
+```{r overdisp}
+paste("Mean: ", mean(data$ofp), "Variance: ", var(data$ofp))
+```
+
+Nie trudno zauważyć, że $Var[ofp] >> \mathbb{E}[ofp]$.
+
+**b)**: Ze względu na znaczącą liczbę zer wprowadź zmienną pomocniczą $f(ofp)=log(ofp+0.5)$ dzięki której łatwiej będzie zbadać wzajemne zależności pomiędzy "ofp" i regresorami.
+
+Zaproponowana tansformacja ma na celu przybliżenie rozkładu zmiennej objaśnianej do rozkładu normalnego.
+```{r ofp_log}
+data <- data %>% mutate(log_ofp = log(ofp + 0.5)) 
+
+data %>%
+  ggplot(aes(log_ofp)) +
+  geom_histogram(bins=10) + 
+  ggtitle("Wynik przekształcenia predyktora ofp")
+```
+
+**c)**: Narysuj dla każdego regresora osobno na jednym rysunku boxploty dla $f(ofp)$ w rozbiciu ze względu na przyjmowane wartości przez dany regresor. Jeżeli dla danej wartości regresora będzie mało obserwacji, pogrupuj wartości regresora i wykonaj boxplot dla pogrupowanych wartości.
+
+Postanowiłem rozpocząć od sprawdzenia, które zmienne można poddać procedurze łączenia poziomów odpowiadających niewielkiej części populacji.
+```{r cast_data, warning=FALSE}
+data.fct <- data 
+ordered_fct <- c("numchron", "hosp", "school")
+unordered_fct <- c("hosp", "health", "gender", "privins")
+data.fct[ordered_fct] <- lapply(data.fct[ordered_fct], factor, order=T)
+data.fct[unordered_fct] <- lapply(data.fct[unordered_fct], factor)
+glimpse(as_tibble(data.fct))
+```
+
+```{r histograms}
+data.fct %>% 
+  dplyr::select(-c(ofp, log_ofp, school)) %>% 
+  gather() %>%
+  ggplot(aes(x=value)) + 
+  geom_bar() + 
+  facet_wrap(. ~ key, scale="free") + 
+  ggtitle("Rozkłady predyktorów")
+```
+
+```{r school_histogram}
+data.fct %>% 
+  ggplot(aes(x=school)) +
+  geom_bar() + 
+  ggtitle("Rozkład lat edukacji")
+```
+
+Grupowanie wartości regresora ma na celu zmniejszenie liczby niepotrzebnych współczynników modelu. Na podstawie przedstawionych wykresów można wywnioskować, że warto zgrupować np. numchron do postaci: $\{0, 1, ..., 5, 6+\}$ oraz liczby pobytów w szpitalu do postaci: $\{0, 1, 2, 3+\}$.
+
+```{r data_aggregation, warning=FALSE}
+data.aggr <- data %>%
+  mutate(hosp = recode_factor(hosp, `0`="0", `1`="1", `2`="2", .default="3+")) %>%
+  mutate(numchron = recode_factor(numchron, `0`="0", `1`="1", `2`="2", `3`="3", `4`="4", `5`="5", .default="6+",  .ordered=T))
+
+glimpse(as_tibble(data.aggr))
+```
+
+Po zgrupowaniu danych warto spojrzeć na wspomniane boxploty w celu określenia które zmienne mogą być związane ze zmienną objaśnianą.
+```{r boxplots}
+data.aggr %>% 
+  dplyr::select(-c(ofp, school)) %>% 
+  gather(key="key", value="value", -c(log_ofp)) %>%
+  ggplot(aes(x=value, y=log_ofp)) + 
+  geom_boxplot() +
+  facet_wrap(. ~ key, scale="free") + theme(legend.position = "none")
+```
+
+```{r boxplot_school}
+data.fct %>% 
+  dplyr::select(c(log_ofp, school)) %>% 
+  gather(key="key", value="value", -c(log_ofp)) %>%
+  ggplot(aes(x=value, y=log_ofp)) + 
+  geom_boxplot() + 
+  theme(legend.position = "none")
+```
+
+Wygląda na to, że wszystkie predyktory z wyjątkiem liczba lat edukacji są w mniejszym lub większym stopniu związane ze zmienną objaśnianą.
+
+* gender - mediana dla kobiet i mężczyzn jest niemal identyczna. Mimo to widoczne jest, że u mężczyzn liczba wizyt charakteryzuje się znacznie większą wariancją. Można to próbować tłumaczyć tym, że część mężczyzn idzie do lekarza w ostateczności, podczas gdy kobiety mają tutaj bardziej zrównoważone podejście.
+* health - obserwacje sugerują dość oczywistą zależność tzn. osoby czujące się dobrze nie chodzą do lekarza, podczas gdy osoby określające swój stan zdrowia jako zły chodzą częściej.
+* hosp - kolejna dość oczywista zależność jako, że zgodnie z oczekiwaniami osoby, które często bywają w szpitalu częściej odbywają wizyty w gabinecie. Może to być np. spowodowane konsultacjami po wypisaniu ze szpitala.
+* numchron - podobnie jak w przypadku innych predyktorów, im więcej przewlekłych stanów chorobowych tym więcej wizyt u lekarza.
+
+```{r remove_log_ofp}
+data.aggr <- data.aggr %>% dplyr::select(-c(log_ofp))
+```
+
+## Zadanie 3 - Dopasowanie modeli
+
+Zadanie polega na dopasowaniu i porównaniu następujących modeli:
+
+* Model Poissona
+* Model ujemny dwumianowy
+* Model ZIPR
+* Model ZINBR
+* Model Poissona z barierą
+* Model ujemny dwumianowy z barierą
+
+Powyższe zestawienie to (z wyłączeniem regresji Poissona) zbiór modeli mających na celu uwzględnienie zjawiska nadmiernej inflacji i/lub zjawiska nadmiernej dyspersji. Celem zadania jest próba uzyskania minimalnego ale wystarczającego modelu w każdym przedstawionym przypadku. Podstawowym narzędziem do redukcji liczby parametrów będzie wynik funkcji summary() dla modelu pełnego, a następnie skorzystanie z Likelihood-Ratio test dla modelu zredukowanego i pełnego. Redukcja zostanie przeprowadzona tylko jeśli będą ku temu odpowiednie przesłanki. 
+
+**Model Poissona**
+
+Klasyczny model związany z regresji Poissona w którym:
+$$
+\begin{gather*} 
+\mathbb{E}[Y] = \mu \\ 
+Var[Y] = \mu 
+\end{gather*}
+$$
+
+Model ten nie uwzględnia ani zjawiska nadmiernej dyspersji ani inflacji w zerze. Na podstawie dotychczasowej analizy można się spodziewać, że model ten nie jest modelem poprawnym w przypadku przedstawionego zbioru danych.
+
+```{r poi_summ}
+model.poi <- glm(ofp ~ ., data=data.aggr, family=poisson())
+summary(model.poi)
+```
+
+O dziwo model Poissona uznał niemal wszystkie predyktory za istotne. Wyjątek stanowią tutaj niektóre poziomy związane z liczbą chorób przewlekłych, ale oznacza to po prostu tyle, że nie ma statystycznie istotnej różnicy pomiędzy danymi poziomami a baseline'm związanym z brakiem chorób przewlekłych. Może to być spowodowane tym, że model próbuje skompensować błędy wynikające z nadmiernej dyspersji oraz inflacji w zerze za pomocą dodatkowych predyktorów. W tym przypadku nie zostanie przeprowadzona redukcja modelu bo nie ma ku temu podstaw.
+
+**Model ujemny dwumianowy**: 
+
+W modelu ujemnym dwumianowym mam, że:
+$$
+\begin{gather*} 
+  \mathbb{E}[Y] = \mu \\ 
+  Var[Y] = \mu + \alpha\mu^2
+\end{gather*}
+$$
+Z czego wynika, że został wprowadzony dodatkowy parametr $\alpha$ odpowiedzialny za modelowanie zależności pomiędzy średnią i wariancją. Jeśli $\alpha=0$, wtedy $NB(\mu, 0)=Pois(\mu)$. Wniosek jest taki, że model uwzględnia zjawisko nadmiernej dyspersji ale nie uwzględnia zjawiska inflacji w zerze.
+
+```{r neg_bin}
+model.nb <- glm.nb(ofp ~ ., data=data.aggr)
+summary(model.nb)
+```
+
+Podobnie do modelu Poissona, nie ma istotnych różnic pomiędzy niektórymi poziomami predyktora opisującego liczbę chorób przewlekłych. 
+
+**Model ZIPR**
+
+Model ZIPR zakłada, że zmienna objaśniana ma rozkład będący mieszanką rozkładu dwupunktowego i rozkładu Poissona.
+$$
+\mathbb{P}(Y_i=k) = 
+  \begin{cases} 
+    \pi_i + (1-\pi_i)exp(-\mu) & \mbox{if } k=0 \\ 
+    (1-\pi_i)e^{-\mu_i\frac{\mu_i^k}{k!}} & \mbox{if } k \in \{1,2,...\} 
+  \end{cases}
+$$
+Mam zatem, że modelowanie odbywa się w pewnym sensie dwustopniowo. Najpierw określam przynależność każdego $Y_i$ do populacji zerowej (k=0) za pomocą rozkładu dwupunktowego. Następnie uwzględniając siłe przynależnośći do populacji zerowej, wykorzystuje rozkład Poisson do określenia $\mathbb{P}(Y_i=k)$. Jak widać model uwzględnia zjawisko inflacji w zerze, ale nie bierze pod uwagę możliwości nadmiernej dyspersji.
+
+```{r zipr}
+model.zeroinfl <- zeroinfl(ofp ~ . , data=data.aggr)
+summary(model.zeroinfl)
+```
+
+Podsumownie zawiera dwa zestawy współczynników. Pierwszy zestaw dotyczy modelu zliczającego związanego z modelem Poissona, drugi zestaw to współczynniki modelu określającego przynależność do populacji zerowej. Podsumowanie wskazuje na to, że subiektywna ocena zdrowia może zostać pominięta w modelu związanym z przynależnością do populacji zerowej. 
+
+```{r zipr_red}
+model.zeroinfl_red <- zeroinfl(ofp ~ . | . - health , data=data.aggr)
+summary(model.zeroinfl_red)
+```
+
+```{r zipr_lrt}
+lrt <- function(model1, model2, df) {
+  lik_red <- logLik(model1)
+  lik <- logLik(model2)
+  round(pchisq(abs(2*(lik_red-lik)), df=df, lower.tail = F), 5)
+}
+
+paste("p-value for likelihood ratio test: ", lrt(model.zeroinfl_red, model.zeroinfl, 2))
+```
+
+Wysoka p-wartość sugeruje, że przeprowadzona redukcja jest poprawna.
+
+**Model ZINBR**
+
+Model ten stanowi rozszerzenie modelu ZIPR z poprzedniego podpunktu.
+$$
+\mathbb{P}(Y_i=k) = 
+  \begin{cases} 
+    \pi_i + (1-\pi_i)f(0;\mu,\phi) & \mbox{if } k=0 \\ 
+    (1-\pi_i)f(k;\mu. \phi) & \mbox{if } k \in \{1,2,...\} 
+  \end{cases}
+$$
+Uogólnienie polega na zastąpieniu gęstości Poissona gęstością rozkładu ujemnego dwumianowego ($NB(\mu_i, \phi)$) lub gęstością uogólnionego rozkładu Poissona $GP(\mu_i, \phi)$. Oba przypadki można oznaczyć jako: $f(0; \mu, \phi)$. To co jest istotne to, że nowe gęstości posiadają parametr $\phi$ umożliwiający modelowanie zależności pomiędzy średnią i wariancją. W tym przypadku wykorzystana została gęstość rozkładu ujemnego dwumianowego. 
+
+```{r zinbr}
+model.nb_zeroinfl <- zeroinfl(ofp ~ . , data=data.aggr, dist="negbin")
+summary(model.nb_zeroinfl)
+```
+
+Wnioskuje, że w tym modelu z członu odpowiedzialnego za modelowanie przynależności do populacji zerowej można usunąć informacje na temat liczby pobytów w szpitalu oraz subiektywną ocene stanu zdrowia. 
+
+```{r zinbr_reduced}
+model.nb_zeroinfl_red <- zeroinfl(ofp ~ . | . - health - hosp, data=data.aggr)
+summary(model.nb_zeroinfl_red)
+```
+
+```{r  zinbr_lrt}
+paste("p-value for likelihood ratio test: ", lrt(model.nb_zeroinfl_red, model.nb_zeroinfl, 6))
+```
+
+W tym przypadku hipoteza zerowa likelihood ratio test została odrzucona. Zostaje zatem przy modelu pierwotnym.
+
+**Model Poissona z barierą**
+
+Model z barierą opiera się na podobnym pomyśle co model ZIPR/ZINBR. 
+$$
+\mathbb{P}(Y_i = k) = 
+  \begin{cases} 
+    f_{zero}(0) & \mbox{if } k=0 \\ 
+    (1-f_{zero}(0))\frac{f_{count}(k)}{(1-f_{count}(0))} & \mbox{if } k \in \{1,2,...\} 
+  \end{cases}
+$$
+
+W przedstawionym przypadku $f_{zero}(0)$ opisuje kryterium przekroczenia granicy, natomiast $f_{count}$ to gęstość rozkładu zliczającego np. rozkład Poissona lub ujemny dwumianowy z pominięciem $k=0$. Pominięcie $k=0$ wymusza podniesienie prawdopodobieńst $f(k > 1)$ po to aby funkcja $f_{count}(k)$ była gęstością na $\mathbb{N}_+$. Zostało to zrealizowane przez podzielenie przez $(1-f_{count}(0))$. Z wstępu wynika, że $f_{count}(0)$ jest tworem dobrze znanym, czym jest zatem $f_{zero}(0)$? Gęstość $f_{zero}$ ma za zadanie określać czy zmienna $Y_i$ ma być w ogóle dopuszczona do modelu liczącego. Realizowane jest to w ten sposób, że $f_{zero}(0) \in \{0, 1\}$. Taka konstrukcja sugeruje, że barierą w zaproponowanym modelu może być np. wynik regresji logistycznej, co znajduje swoje odzwierciedlenie w implementacji pakietu pscl. 
+
+Podejście to warto zestawić z modelami ZIPR i ZINBR z poprzednich podpunktów. W modelach tych przynależność do populacji zerowej była uwzględniana w prawdopodobieństwie $P(Y_i=k)$ związanym z odpowiednim rozkładem zliczającym. W przypadku modeli z barierą, po przekroczeniu bariery prawdopodobieństwo przynależności do populacji zerowej przestaje mieć znaczenie. 
+
+**Model z barierą - rozkład Poissona**:
+```{r hurdle_poi}
+model.hurdle <- hurdle(ofp ~ . , data=data.aggr)
+summary(model.hurdle)
+```
+
+Przedstawione podsumowanie wskazuje, że można usunąć informacje na temat samopoczucia.
+```{r hurdle_red}
+model.hurdle_red <- hurdle(ofp ~ . | .-health , data=data.aggr)
+summary(model.hurdle)
+```
+
+```{r hurdle_lrt}
+paste("p-value for likelihood ratio test: ", lrt(model.hurdle, model.hurdle_red, 2))
+```
+
+Relatywnie wysoka p-wartość sugeruje brak podstaw do odrzucenia hipotezy zerowej zatem zredukowany model jest poprawny.
+
+**Model z barierą - rozkład Negative-Binomial**:
+```{r nb_hurdle}
+model.nb_hurdle <- hurdle(ofp ~ . , data=data.aggr, zero.dist="negbin")
+summary(model.nb_hurdle)
+```
+
+```{r nb_hurdle_red}
+model.nb_hurdle_red <- hurdle(ofp ~ . | . - health, data=data.aggr, zero.dist="negbin")
+summary(model.nb_hurdle_red)
+```
+
+```{r nb_hurdle_lrt}
+paste("p-value for likelihood ratio test: ", lrt(model.nb_hurdle, model.nb_hurdle_red, df=2))
+```
+
+Ponownie tylko wyrzucenie predyktora związanego z sampopoczuciem powoduje, że nie ma podstaw do odrzucenia hipoterzy zerowej.
+
+#### Porównanie wyników poszczególnych modeli
+
+Zestawienie zawiera te modele w których redukcja okazała się skuteczna (zipr, poi_hurdle, nb_hurdle) lub modele zawierające wszystkie predyktory w przeciwnym wypadku. Można by oczywiście włożyć nieco więcej pracy w dobór predyktorów jednak obawiam się, że przy takiej liczbie modeli dość długie sprawozdanie mogłoby się zrobić bardzo długie.
+
+```{r expected_amount_of_zeros}
+expected_n_zeros_poi <- function(fitted_model) {
+  mu <- predict(fitted_model, type="response")
+  round(sum(dpois(x=0, lambda=mu)))
+}
+
+expected_n_zeros_nbin <- function(fitted_model) {
+  mu <- predict(fitted_model, type="response")
+  round(sum(dnbinom(x=1, size = fitted_model$theta, mu=mu)))
+}
+
+unlist_iter <- function(iter, f) {unlist(lapply(iter, f))}
+
+get_dispersion_params <- function(models) {
+  thetas <- map(models, function(m) {m$theta})
+  thetas[sapply(thetas, is.null)] <- NA
+  unlist(thetas)
+}
+```
+
+```{r models summary}
+models <- list(poi=model.poi, 
+               nb=model.nb, 
+               zeroinfl=model.zeroinfl_red, 
+               nb_zeroinfl=model.nb_zeroinfl, 
+               hurdle=model.hurdle_red, 
+               nb_hurdle=model.nb_hurdle_red)
+
+n_zeros_poisson <- unlist(map(list(model.poi, model.zeroinfl, model.hurdle), expected_n_zeros_poi))
+n_zeros_nbin <- unlist(map(list(model.nb, model.nb_zeroinfl, model.nb_hurdle), expected_n_zeros_nbin))
+n_zeros <- rep(0, 6)
+n_zeros[c(1, 3, 5)] <- n_zeros_poisson
+n_zeros[c(2, 4, 6)] <- n_zeros_nbin
+
+summary_df <- data.frame(n_parameters = unlist_iter(lapply(models, coefficients), length), 
+                         log_lik = unlist_iter(models, logLik), 
+                         aic = unlist_iter(models, AIC), 
+                         bic = unlist_iter(models, BIC),
+                         theta = get_dispersion_params(models),
+                         n_zeros = n_zeros)
+
+summary_df <- t(summary_df)
+summary_df
+```
+
+Jako, że niektóre z modeli mają relatywnie wiele parametrów, skorzystałbym z kryterium BIC do wyboru ostatecznego modelu. W tym przypadku najskuteczniejszy okazał się zredukowany model ZINBR. Widoczne jest, że w przypadku modelowania parametru dyspersji theta, parametr ten jest istotnie różny od zera co sugeruje, że założenie występowania tego zjawiska w danych jest poprawne. Dodatkowo warto zauważyć, że modele potrafiące zareagować na nadmierną dyspersje i inflacje w zerze charakteryzują się znacznie większą liczbą zer jeśli chodzi o predykcje. Jest to bardzo zbliżone do rzeczywistości jako, że liczba zer w wejściowym wektorze $Y$ wynosi 683. Co ciekawe modele zeroinfl i hurdle oparte na regresji poissona nie były w stanie uchwycić tej prawidłowości. 
+
+## Zadanie 4
+
+**Treść zadania**: Na wykładzie pokazano, że badanie hipotezy $H_0$: dane pochodzą z rozkładu Poissona vs. $H_1$: dane pochodzą z rozkładu ujemnego dwumianowego można przeprowadzić za pomocą statystyki $\chi^2 = D(M1) - D(M2)$ lub statystyki $T = \frac{\hat{\alpha}}{Var[\hat{\alpha}]}$. Wygeneruj losową macierz $X \in M_{\{1000 \times 2\}}$ taką, że $X_{ij} \sim N(0, \frac{1}{1000})$. Następnie wyznacz ciąg predyktorów liniowych $\eta=X\beta$, dla $\beta=(3,3)$ i na ich podstawie wygeneruj 1000 niezależnych replikacji wektora odpowiedzi y przy założeniu hipotezy zerowej.
+
+Problem przy testowaniu hipotezy zerowej polega na tym, że przedstawione statystyki mają dość nietypowe rozkłady. W przypadku $T$ jest to rozkład normalny obięty do $\mathbb{R}_+ \cup \{0\}$, gdzie masa lewego ogona skoncentrowana jest w zerze. Natomiast w przypadku statystyki $\chi^2$ jest to mieszanka rozkładu skoncentrowanego w 0 oraz rozkładu $\chi^2_1$. Aby zwizualizować obie sytuacje narysowane zostały histogramy oraz gęstości oczekiwanych rozkładów. Dodatkowo przedstawiono wykresy kwantylowo-kwantylowe dla odpowiednich rozkładów teoretycznych.
+
+```{r zadanie4, message=FALSE, warning=FALSE}
+n = 1000
+p = 2 
+betas <- c(3, 3)
+X = matrix(rnorm(n*p,0,1/sqrt(n)), n, p)
+mu_i = exp(X%*%betas)
+rep <- 10000
+stat_mtrx <- matrix(nrow=rep, ncol=2)
+
+c = glm.control(maxit=40)
+for (i in 1:rep){
+  y_new <- rpois(n, mu_i)
+  poi_model <- glm(y_new ~ X-1, family=poisson())
+  nb_model <- glm.nb(y_new ~ X-1, control=c)
+  alpha_est <- 1/nb_model$theta
+  T_stat <- alpha_est / vcov(nb_model)[2,2]
+  Chi_sq_stat <- -2*(logLik(poi_model) - logLik(nb_model))
+  stat_mtrx[i, ] <- c(T_stat, Chi_sq_stat)
+}
+```
+
+**Rozkład statystyki T**:
+
+```{r T_stat, message=FALSE, warning=FALSE}
+stat_mtrx <- stat_mtrx[is.finite(rowSums(stat_mtrx)),]
+stat_mtrx <- as.data.frame(stat_mtrx)
+colnames(stat_mtrx) <- c("T_stat", "Chi_stat")
+density <- seq(min(stat_mtrx["T_stat"]), max(stat_mtrx["T_stat"]), by=0.01)
+sigma <- quantile(sort(stat_mtrx$T_stat), 0.75) / qnorm(0.75)
+norm_curve_height <- 1/(sqrt(2*pi)*sigma)
+norm_dens <- dnorm(density, sd=sigma)
+density_df <- data.frame(dens_arg=density, norm_dens=norm_dens)
+
+hist_T <- stat_mtrx %>% 
+  ggplot(aes(T_stat))  +
+  geom_histogram(aes(y=..density..), position="identity", alpha=0.5)+
+  ggtitle("Rozkład statystyki T") +
+  geom_line(data=density_df, aes(x=dens_arg, y=norm_dens)) + 
+  xlab("T statistic")
+
+hist_T_zoom <- stat_mtrx %>% 
+  filter(T_stat > 1e-8) %>%
+  ggplot(aes(T_stat))  +
+  geom_histogram(aes(y=..density..), position="identity", alpha=0.5)+
+  ggtitle("Rozkład statystyki T (przybliżenie)") +
+  geom_line(data=density_df, aes(x=dens_arg, y=norm_dens)) + 
+  coord_cartesian(ylim = c(0, 1/(sqrt(pi*2)*sigma) + 1)) + 
+  xlab("T statistic")
+
+sorted_T <- sort(stat_mtrx$T_stat)
+quant_points <- seq(0, 0.9, by=0.01)
+data_q <- quantile(sorted_T, quant_points)
+theoretical_q <- qnorm(quant_points)
+qq_plot_df <- data.frame(theoretical=theoretical_q, data_q=data_q)
+
+qq_T <- qq_plot_df %>%
+  ggplot(aes(x=theoretical, y=data_q)) +
+  geom_point() + 
+  ggtitle("Q-Q plot") + 
+  xlab("Theoretical quantile") +
+  ylab("Normal quantile")
+
+grid.arrange(hist_T, hist_T_zoom, qq_T, ncol=2)
+```
+
+**Rozkład statystyki Chi-kwadrat**:
+
+```{r chi_stat, message=FALSE, warning=FALSE}
+chi_args <- seq(1e-3, 6, by=0.01)
+chi_dens <- dchisq(chi_args, df=1)
+chi_density_df <- data.frame(dens_arg=chi_args, chi_dens=chi_dens)
+
+hist_chi <- stat_mtrx %>% 
+  ggplot(aes(Chi_stat))  +
+  geom_histogram(aes(y=..density..), position="identity", alpha=0.5)+
+  ggtitle("Rozkład statystyki chi-kwadrat") +
+  geom_line(data=chi_density_df, aes(x=dens_arg, y=chi_dens)) + 
+  coord_cartesian(ylim = c(0, 2), xlim=c(-0.1, 6)) + 
+  xlab("Chi-square statistic") 
+
+sorted_chi_stat <- sort(stat_mtrx$Chi_stat)
+sorted_chi_stat <- sorted_chi_stat[sorted_chi_stat > 0]
+quant_points <- seq(0, 0.9, by=0.01)
+data_q <- quantile(sorted_chi_stat, quant_points)
+data_q <- data_q[data_q > 0]
+theoretical_q <- qchisq(quant_points, df=1)
+qq_plot_df <- data.frame(theoretical=theoretical_q, data_q=data_q)
+
+qq_chi_sq <- qq_plot_df %>%
+  ggplot(aes(x=theoretical, y=data_q)) +
+  geom_point()  +
+  ggtitle("Q-Q plot") + 
+  xlab("Theoretical quantile") +
+  ylab("CHi-Square quantile")
+
+grid.arrange(hist_chi, qq_chi_sq, ncol=2)
+```
+
+
+Zgodnie z oczekiwaniami znaczna część wartości statystyk ma tendencje do skupiania się w zerze. Te dane, które nie wpadły w zero mają rozkład zbliżony  do rozkładów teoretycznych - rozkład standardowy normalny dla statystyki T oraz rozkład chi-kwadrat z jednym stopniem swobody dla statystyki Chi-kwadrat. Omówione zależności są szczególnie widoczne na wykresach kwantylowo-kwantylowych.
