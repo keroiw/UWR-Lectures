@@ -1,11 +1,7 @@
 ---
-title: "Complex Data 2"
-knit: (function(input_file, encoding) {
-  out_dir <- '../docs';
-  rmarkdown::render(input_file,
- encoding=encoding,
- output_file=file.path(dirname(input_file), out_dir, 'ComplexData2.html'))})
-output: html_document
+title: "Complex Data - Homework 2 - Błażej Wiórek" 
+knit: (function(input_file, encoding) { out_dir <- '../docs'; rmarkdown::render(input_file,
+  encoding=encoding, output_file=fil  e.path(dirname(input_file), out_dir, 'ComplexData2.html'))})
 ---
 
 ```{r setup, include=FALSE}
@@ -30,17 +26,29 @@ Z = \frac{L^T\hat{\beta}}{\sqrt{L^T \hat{Cov}(\hat{\beta}) L}}
 $$
 
 Where:
+
 * $L$ is test matrix
 * $\hat{Cov}(\hat{\beta})$ is an estimate of covariance matrix of $\hat{\beta}$
-* $H_0: L\beta = 0$
+* $H_0: L^T\beta = 0$
 
-If the test is defined as it was done in question, then we have that 
+If the test is defined as it was done in the question (univariate Wald test), then we have that:
 $$
-L = (0, 0, 0, 1)^T
+L = (0, 0, 1, 0)^T
 $$
-hence it is $1 \times 4$ vector.
 
-If we were to test that blood lead level is the same at week 4 and week 6, then it can be translated into $\beta_2 = \beta_3$ which is equivalent to $\beta_2 - \beta_3 = 0$. This hypothesis yields:
+If the global hypothesis $H_0: L^T\beta=0$ is of interest, then:
+$$
+L = 
+\begin{pmatrix}
+1 & 0 & 0 & 0 \\
+0 & 1 & 0 & 0 \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{pmatrix}
+$$
+
+
+Finally if we were to test that blood lead level is the same at week 4 and week 6, then it can be translated into $\beta_2 = \beta_3$ which is equivalent of $\beta_2 - \beta_3 = 0$. This hypothesis yields:
 $$
 L = (0, 0, 1, -1)^T
 $$
@@ -57,7 +65,7 @@ If $H_0: \beta_2 = \beta_3 = \beta_4 = 0$, then reduced model from alternative h
 $$
 LRT = 2(\hat{l}_{full} - \hat{l}_{reduced}) \sim \chi^2_r \text{ under } H_0
 $$
-Degrees of freedom of LRT statistic ($r$) is the difference between number of parameters in the full and reduced model. In case of give example we have that $r = 4 - 3 = 1$
+Degrees of freedom of LRT statistic ($r$) is the difference between number of parameters in the full and reduced model. In case of given example we have that $r = 4 - 1 = 3$. In order to carry this procedure the models must be fitted with MLE procedure. It happens because when model is fitted with REML, then REML likelhoods don’t involve the regression parameters.
 
 ### Working with moo dataset
 
@@ -97,18 +105,18 @@ summary(moo.unrestr)
 
 It's worth to notice that the mean of proteins for first measurement is considered as a baseline. Another interesting observation is that there are no reasons to claim the difference between the trajectories as we fail to reject the hypothesis $diet3 = diet3*time2 = diet3*time3=diet3*time4 = 0$.
 
-It turns out that testing procedures for such models can be automated with anova function.
+It turns out that testing procedures for such models can be automated with anova function. When only one fitted model object is present, then anova output is based on Wald test.
 ```{r anova_unrestricted}
 anova(moo.unrestr)
 ```
 
 The results contain information about two tests for main effects (row 2 and 3) and test for parallelism (row 4)
 
-1. Hypothesis test if there is a diet effect. Let's suppose that $G_i$ is indicator of i-th group and $j$ is indicator of j-th measurement. If $\Delta_i = \mu_{G1, j} - \mu_{G2, j}$ the test can be stated as: $H_0: \Delta_1 = \Delta_2 = ... = \Delta_p = 0$. In this case we fail to reject null hypothesis. It can observed on trends plot as trajectories are close to each other. 
-2. Hypothesis test if there is a time effect. For a given model test can be stated as: $H_0: time2 = time3 = time4 = 0$. In this case there are basis to reject the null hypothesis. Again it can be observed on the trends plot. If the null hypothesis were true, then trajectories shouldn't depend on time, but in this case we observe clear descending trend. 
-3. Hypothesis test if there is group-by-time interaction. For a given model test can be stated as: $H_0: diet3:time2 = diet3:time3 = diet3:time4 = 0$. Again there are basis to reject the null hypothesis. If the null hypothesis were true the trajectories should be parallel. It is observable on obtained graph. 
+1. Hypothesis test if there is a diet effect. Let's suppose that $G_i$ is indicator of i-th group and $j$ is indicator of j-th measurement. If $\Delta_i = \mu_{G1, j} - \mu_{G2, j}$ the test can be stated as: $H_0: \Delta_1 = \Delta_2 = ... = \Delta_p = 0$. In this case we fail to reject the null hypothesis. It can observed on trends plot as trajectories are close to each other. 
+2. Hypothesis test if there is a time effect. For a given model test can be stated as: $H_0: time2 = time3 = time4 = 0$. In this case we reject the null hypothesis. Again it can be observed on the trends plot. If the null hypothesis were true, then trajectories shouldn't depend on time, but in this case we observe clear descending trend. 
+3. Hypothesis test if there is group-by-time interaction. For a given model test can be stated as: $H_0: diet3:time2 = diet3:time3 = diet3:time4 = 0$. Again we fail to reject the null hypothesis. The conclusion is that the trajectories should be parallel, it's observable on the graph. 
 
-Above tests lays foundations for the ideas of model simplification. For instance we can safely assume that there is no group-by-time interaction and diet-time interaction can be removed.
+Above tests lays foundations for the ideas of model simplification. For instance we can safely assume that there is no group-by-time interaction and diet-time interaction, so they can be removed.
 ```{r no_group_by_time_model}
 moo.no_group_by_time <- gls(protein ~ diet + time,
                              correlation=corSymm(form= ~1|id),
@@ -117,12 +125,12 @@ moo.no_group_by_time <- gls(protein ~ diet + time,
 summary(moo.no_group_by_time)
 ```
 
-Let's coll anova function one more time on reduced model:
+Let's call anova function one more time on reduced model:
 ```{r anova_reduced}
 anova(moo.no_group_by_time)
 ```
 
-1. There is clear evidence to reject $H_0: diet3 = 0$
+1. It's not obvious if $H_0: diet3 = 0$ should be rejected and the decision will depend on assumed statistical significance.
 2. There are no basis to reject $H_0: time2=time3=time4=0$
 
 Another test that might be usefull is likelihood ratio test, because the latest model is the reduced version of the model with interaction terms. If we want to test the importance of the interaction terms we get the following results:
@@ -152,6 +160,24 @@ full_moo_data <- read.table("/home/wiorek/Desktop/UWR-Lectures/ComplexData/full_
 
 #### Write out the most general model
 
+* $X_{1ij} = 1$ for all measurements. It Represents baseline (barley diet, week 1). 
+* $X_{2ij}$ equals 1 iff i-th cow belongs to barley+lupins diet group (0 otherwise)
+* $X_{3ij}$ equals 1 iff i-th cow belongs to lupins diet group (0 otherwise)
+* $X_{4ij}$ equals 1 iff the j-th measurment was taken at time = 2 weeks (0 otherwise)
+* $X_{5ij}$ equals 1 iff the j-th measurment was taken at time = 3 weeks (0 otherwise)
+* $X_{6ij}$ equals 1 iff the j-th measurment was taken at time = 4 weeks (0 otherwise)
+* $X_{7ij}$ equals 1 iff the j-th measurment was taken at time = 2 weeks & i-th cow belongs to barley+lupins diet group (0 otherwise)
+* $X_{8ij}$ equals 1 iff the j-th measurment was taken at time = 2 weeks & i-th cow belongs to lupins diet group (0 otherwise)
+* $X_{9ij}$ equals 1 iff the j-th measurment was taken at time = 3 weeks & i-th cow belongs to barley+lupins diet group (0 otherwise)
+* $X_{10ij}$ equals 1 iff the j-th measurment was taken at time = 3 weeks & i-th cow belongs to lupins diet group (0 otherwise)
+* $X_{11ij}$ equals 1 iff the j-th measurment was taken at time = 4 weeks & i-th cow belongs to barley+lupins diet group (0 otherwise)
+* $X_{12ij}$ equals 1 iff the j-th measurment was taken at time = 4 weeks & i-th cow belongs to lupins diet group (0 otherwise)
+
+The model can be written as:
+$$
+Y_{ij} = \beta_1 + \sum^{12}_{k=2}\beta_kX_{kij} + \epsilon_{ij}
+$$
+
 ```{r general_moo_model}
 full_moo.unrestr <- gls(protein ~ Diet*Time,
                         correlation=corSymm(form= ~1|Cow),
@@ -159,17 +185,19 @@ full_moo.unrestr <- gls(protein ~ Diet*Time,
                         data=full_moo_data)
 summary(full_moo.unrestr)
 ```
-#### Test for parallelism
+
+#### Wald tests
 
 ```{r anova_full_moo}
 anova(full_moo.unrestr)
 ```
 
-There are no basis to reject the null hypothesis that iteraction terms are important, hence we conclude that the trajectories should be parallel.
+**Test for pararellism**: 
+We fail to reject the null hypothesis which states that interaction terms are not important, hence we conclude that the trajectories should be parallel.
 
-#### Test for main effects
+**Test for main effects**:
 
-1. We fail to reject the null hypothesis $H0: Time2=Time3=Time4$
-2. There are no basis to reject the null hypothesis $H0:Dietbarley+lupins = Dietlupins = 0$
+1. We reject the null hypothesis $H0: Time2=Time3=Time4=0$
+2. We fail to reject the null hypothesis $H0:Dietbarley+lupins = Dietlupins = Dietbarley = 0$
 
 
