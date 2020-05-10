@@ -8,23 +8,24 @@ This webpage merge together all projects that were made during summer semester a
 
 ### Lectures and associated pages:
 
-#### Advanced linear models
+#### Advanced linear models [PL]
 
 * [Homework 1 - Logistic regression basics](https://keroiw.github.io/UWR-Lectures/Modele1)
 * [Homework 2 - Logistic regression estimates and asymptotics](https://keroiw.github.io/UWR-Lectures/Modele2)
 * [Homework 3 - Poisson regression and role of factors in the model](https://keroiw.github.io/UWR-Lectures/Modele3)
+* [Homework 4 - Extensions of Poisson regression - overdispersion and zero-inflation](https://keroiw.github.io/UWR-Lectures/Modele4)
 
-#### Big Data
+#### Big Data [ENG.]
 
 * [Homework 1 - Bonferroni and chi-squared testing procedures](https://keroiw.github.io/UWR-Lectures/BigData1)
 * [Homework 2 - Neyman-Pearson test for needle in the haystack problem](https://keroiw.github.io/UWR-Lectures/BigData2)
 
-#### Complex data
+#### Complex data [PL/ENG.]
 
 * [Homework 1 - The basics of repeated measures](https://keroiw.github.io/UWR-Lectures/ComplexData1)
 * [Homework 2 - Likelihood and Wald tests for GLS](https://keroiw.github.io/UWR-Lectures/ComplexData2)
 
-#### Methods of classification and dimensionality reduction
+#### Methods of classification and dimensionality reduction [ENG.]
 
 * [Project 1 - Introduction to recommender systems](https://keroiw.github.io/UWR-Lectures/RecommenderSystems)
 
