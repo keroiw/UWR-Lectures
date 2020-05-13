@@ -19,6 +19,7 @@ This webpage merge together all projects that were made during summer semester a
 
 * [Homework 1 - Bonferroni and chi-squared testing procedures](https://keroiw.github.io/UWR-Lectures/BigData1)
 * [Homework 2 - Neyman-Pearson test for needle in the haystack problem](https://keroiw.github.io/UWR-Lectures/BigData2)
+* [Homework 3 - Multiple testing procedures](https://keroiw.github.io/UWR-Lectures/BigData3)
 
 #### Complex data [ENG.]
 
