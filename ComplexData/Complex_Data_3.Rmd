@@ -1,0 +1,358 @@
+---
+title: "Complex data - Homework 3"
+author: "Błażej Wiórek"
+date: "5/12/2020"
+knit: (function(input_file, encoding) { out_dir <- '../docs'; rmarkdown::render(input_file,
+  encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'ComplexData3.html'))})
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(nlme)
+knitr::opts_chunk$set(echo = F)
+```
+
+## Dataset
+
+Sixty overweight male subjects were randomly assigned to one oftwo weight loss programs. Both programs required subjects tofollow a strict diet regimen and a daily exercise routine. Inaddition, subjects in program 1 received daily encouragement froma representative from the study, while subjects in program 2received no such encouragement. Weight (in pounds) was measuredat baseline (month 0) and at 3, 6, and 9 months thereafter.
+
+```{r data_prep}
+wtloss <- read.table("weight_loss.data", header=F)
+names(wtloss) <- c("id", paste("y", 1:4, sep=""), "program")
+
+# Univariate format
+wtloss.uni <- data.frame(id=rep(wtloss$id, each=4),
+                         wgtloss = as.numeric(t(as.matrix(wtloss[,2:5]))),
+                         program = rep(wtloss$program, each=4),
+                         month=seq(0,9,3),
+                         time.cat=rep(1:4))
+
+wtloss.uni$prog.fac <- factor(wtloss.uni$program, labels=c("1:encourage", "2:none"))
+attach(wtloss.uni)
+wgt.mean <- tapply(wgtloss, list(month, program), mean)
+wgt.sd <- tapply(wgtloss, list(month, program), sd)
+```
+
+Mean within groups:
+```{r mean_by_group}
+wgt.mean
+```
+
+Standard deviation within groups:
+```{r sd_by_group}
+wgt.sd
+detach(wtloss.uni)
+```
+
+```{r data_glimpse}
+#glimpse(as_tibble(wtloss.uni))
+```
+
+```{r plot_trajectories}
+wtloss.uni %>% 
+  mutate(id = factor(id),
+         month=factor(month, ordered = T)) %>%
+  ggplot(aes(x=month, y=wgtloss, group=id)) + 
+  geom_line(aes(color=id)) + 
+  facet_grid(. ~ prog.fac) + 
+  theme(legend.position = "none") +
+  ggtitle("Response to treatment")
+```
+
+## Compare covariance structures
+
+### Compound Symmetry vs. Unstructured
+
+```{r unstructured}
+wtloss.un.cat <- gls(wgtloss~factor(month)*prog.fac,
+                     correlation=corSymm(form= ~1 | id),
+                     weights=varIdent(form= ~1 | month),data=wtloss.uni)
+#summary(wtloss.un.cat)
+```
+
+```{r comp_symm}
+wtloss.cs.cat <- gls(wgtloss~factor(month)*prog.fac,
+                     correlation=corCompSymm(form= ~1 | id),
+                     weights=varIdent(form= ~1),
+                     data=wtloss.uni)
+#summary(wtloss.cs.cat)
+```
+
+```{r unstr_vs_comp_symm}
+lrt_p_val <- function(stat_val, df) paste('LRT p-val: ', round(pchisq(stat_val, df=df, lower.tail = F), 5))
+
+params_unconstr <- function(m1) {
+  p_un <- dim(getVarCov(m1))[1]
+  ((p_un+1)/2)*p_un  
+}
+
+compare_models <- function(m1, p1, m2, p2) {
+  unconstr_lik <- -2 * logLik(m1)
+  comp_symm_lik <- -2 * logLik(m2)
+  cs_un_df <- data.frame(unconstr = c(unconstr_lik, p1),
+                         constr = c(comp_symm_lik, p2),
+                         diff = c(comp_symm_lik - unconstr_lik, p1 - p2))
+  cs_un_df <- t(cs_un_df)
+  colnames(cs_un_df) <- c("LogLik", "Cov. params")
+  cs_un_df
+}
+
+un_params <- params_unconstr(wtloss.un.cat)
+compare_df <- compare_models(wtloss.un.cat, un_params, wtloss.cs.cat, 2)
+compare_df
+```
+
+```{r lrt_unstr_comp_symm}
+lrt_p_val(compare_df[3, 1], compare_df[3,2])
+```
+
+LRT yields $G^2=4.946568$ with 8  df (p=0.76327), so we accept the null hypothesis at $\alpha=0.05$ and conclude that the assumption of compound symmetry covariance structure is appropriate for the data.
+
+### Autoregressive vs. Unstructured
+
+```{r autoreg}
+wtloss.ar1.cat <- gls(wgtloss~factor(month)*prog.fac,
+                      correlation=corAR1(form= ~1 | id),
+                      weights=varIdent(form= ~1),
+                      data=wtloss.uni)
+#summary(wtloss.ar1.cat)
+```
+
+```{r autoreg_vs_unstr}
+compare_df <- compare_models(wtloss.un.cat, un_params, wtloss.ar1.cat, 2)
+compare_df
+```
+
+```{r autoreg_vs_unstr_lrt}
+lrt_p_val(compare_df[3, 1], compare_df[3,2])
+```
+
+LRT yields $G^2=30.37015$ with 8 df (p=0.00018), so we reject  the null hypothesis at $\alpha=0.05$ and conclude that the assumption of autoregressive covariance structure is not sufficient when compared to unstructured.
+
+### Compound Symmetry vs. Autoregressive
+
+Log-Likelihood comparison:
+```{r autoregressive}
+comp_symm <- -2*logLik(wtloss.cs.cat)
+autoreg <- -2*logLik(wtloss.ar1.cat)
+
+print(paste('Compound symmetry: ', comp_symm))
+print(paste('Autoregressive: ', autoreg))
+```
+
+Since -2*log(likelihood) for CS is greater than for AR-1, CS has a higher likelihood and we conclude that CS is a more adequate model for the covariance structure when compared to AR-1.
+
+### Summing up with ANOVA 
+
+```{r anova}
+anova(wtloss.un.cat, wtloss.ar1.cat)
+print('')
+anova(wtloss.un.cat, wtloss.cs.cat)
+print('')
+anova(wtloss.ar1.cat, wtloss.cs.cat)
+```
+
+Thus, we will use a compound symmetry covariance structure for the remainder of the lab. The problem with these test is that they are based on REML instead of ML which may rise concerns in terms of their correctness.
+
+```{r comp_symm_fit}
+mean_gr_1 <- matrix(0L, nrow=4, ncol=8)
+diag(mean_gr_1) = 1
+mean_gr_1[, 1] = 1
+mean_gr_1 <- mean_gr_1%*%wtloss.cs.cat$coefficients
+
+
+mean_gr_2 <- matrix(0L, nrow=4, ncol=4)
+diag(mean_gr_2) = 1
+mean_gr_2[, 1] = 1
+mean_gr_2 <- cbind(mean_gr_2, mean_gr_2)
+mean_gr_2 <- mean_gr_2%*%wtloss.cs.cat$coefficients
+
+var_cov_diag <- sqrt(diag(getVarCov(wtloss.cs.cat)))
+  
+df <- data.frame(mean_resp=c(mean_gr_1, mean_gr_2),
+                 sd_resp=rep(var_cov_diag, 2),
+                 group=rep(paste("group", 1:2), each=4),
+                 time=rep(c(0, 3, 6, 9), 2))  
+df %>%
+  mutate(lwr=mean_resp-sd_resp, 
+         upr=mean_resp+sd_resp) %>%
+  ggplot(aes(x=time, y=mean_resp, color=group)) + 
+  geom_errorbar(aes(ymin=lwr, ymax=upr), position=position_dodge(0.1)) + 
+  geom_point(position=position_dodge(0.1)) +
+  geom_line() +
+  ggtitle("Trajectories of groups for Compound Symmetry structure")
+        
+```
+
+## AUC (minus baseline)
+
+Mean weight levels at baseline, month 3, month 6, month 9
+```{r mean_weight}
+coefs <- wtloss.cs.cat$coefficients
+
+mean_extract_mtrx <- matrix(0L, nrow=4, ncol=4)
+mean_extract_mtrx[1, 1] = 1
+mean_extract_mtrx[2, c(1, 2)] = 1
+mean_extract_mtrx[3, c(1, 3)] = 1
+mean_extract_mtrx[4, c(1, 4)] = 1
+
+encourage_means <- mean_extract_mtrx %*% coefs[1:4]
+
+mean_extract_mtrx <- matrix(0L, nrow=4, ncol=4)
+diag(mean_extract_mtrx) = 1
+mean_extract_mtrx[, 1] = 1
+mean_extract_mtrx <- cbind(matrix(0L, nrow=4, ncol=4), mean_extract_mtrx)
+mean_extract_mtrx[, 1] = 1
+diag(mean_extract_mtrx) = 1
+
+no_encourage_means <- mean_extract_mtrx %*% coefs
+
+means_df <- data.frame(encourage=encourage_means, no_encourage=no_encourage_means, row.names=c("baseline", "m3", "m6", "m9"))
+means_df = t(means_df)
+means_df
+```
+
+In order to obtain mean AUC it's sufficient to take a dot product of contrast L with rows of mean weight data frame.
+```{r mean_auc}
+L <- c(-7.5, 3, 3, 1.5)
+AUC_df <- means_df %*% L
+colnames(AUC_df) <- c('AUC')
+AUC_df
+```
+
+Wald statistic is given by $W^2 = (L\hat{\beta})^T(L\hat{Cov}(\hat{\beta})L^T)^{-1}(L\hat{\beta}) \sim \chi^2_1$ under $H_0$, thus we have:
+```{r auc_wald}
+L <- c(-L, L)
+coefs <- as.matrix(coefs, nrow=8)
+w_sq <- t((L %*% coefs)) %*% solve(L %*% wtloss.cs.cat$varBeta %*% as.matrix(L, nrow=8)) %*% (L %*% coefs)
+paste('Value of Wald statistic: ', round(w_sq, 4), ', p-value: ', pchisq(w_sq, df=1, lower.tail = F))
+```
+
+The conclusion is that we reject the null hypothesis of equal AUC's. 
+
+## Parametric curves
+
+### Quadratic Time Trend
+
+```{r quadratic_time_trend}
+wtloss.cs.quad <- gls(wgtloss~month*prog.fac + I(month^2)*prog.fac,
+                      correlation=corCompSymm(form= ~1 | id),
+                      weights=varIdent(form= ~1),
+                      data=wtloss.uni,method="ML")
+summary(wtloss.cs.quad)
+```
+
+```{r categorical_time}
+wtloss.cs.cat.ml <- gls(wgtloss~factor(month)*prog.fac,
+                        correlation=corCompSymm(form= ~1 | id),
+                        weights=varIdent(form= ~1),
+                        data=wtloss.uni,method="ML")
+#summary(wtloss.cs.cat.ml)
+```
+
+Comparison of quadratic model (continuous time) vs. categorical time with Compound Symmetry structure.
+```{r quadratic_test}
+compare_models_2 <- function(m1, m2) {
+  loglik_m1 <- logLik(m1)
+  df1 <- attr(loglik_m1, "df") 
+  
+  loglik_m2 <- logLik(m2)
+  df2 <- attr(loglik_m2, "df") 
+  
+  comparison_df <- data.frame(saturated = c(-2*loglik_m1, df1),
+                              reduced = c(-2*loglik_m2, df2),
+                              diff = c(-2*(loglik_m2 - loglik_m1), df1-df2))
+  
+  comparison_df <- t(comparison_df)
+  colnames(comparison_df) <- c("LogLik", "N of params")
+  comparison_df
+}
+
+
+compare_models_2(wtloss.cs.cat.ml, wtloss.cs.quad)
+```
+
+```{r quadratic_lert_res}
+lrt_p_val(0.3686901, 2)
+```
+
+LRT yields $G2=0.3686901$ (p=0.83165), so we fail to reject the null hypothesis at $\alpha=0.05$ and conclude that the model with Month as a quadratic effect seems to describe the data adequately
+
+### Linear Time Trend
+
+```{r linear_trend}
+wtloss.cs.lin <- gls(wgtloss~month*prog.fac,
+                     correlation=corCompSymm(form= ~1 | id),
+                     weights=varIdent(form= ~1),
+                     data=wtloss.uni,method="ML")
+summary(wtloss.cs.lin)
+```
+
+```{r linear_quadratic}
+compare_models_2(wtloss.cs.quad, wtloss.cs.lin)
+```
+
+```{r linear_quadratic_lrt}
+lrt_p_val(0.5954061, 2)
+```
+
+LRT yields $G2=0.5954061$ ($p=0.74252$), so we don't reject the null hypothesis at $\alpha=0.05$ and conclude that the model with Month as a linear effect fits the data better than the model with Month as a quadratic effect (based on AIC value).
+
+Since the p-value for month*program is $\approx 0$, we reject  the null hypothesis and conclude that there is a significant interaction between month and program. Thus, our final model is the linear model with interaction. 
+
+**What can you conclude about the two weight programs in terms of their effectiveness?**
+
+Proposed model can be written as:
+$$
+\mathbb{E}(Y_{ij}) = \beta_1 + \beta_2month_{ij} + \beta_3prog_{ij} + \beta_4 month_{ij} * prog_{ij}
+$$
+Which leads to:
+$$
+\mathbb{E}(Y_{ij}) = \beta_1 +  \beta_3prog_{ij} + (\beta_2 + \beta_4*prog_{ij})*month_{ij}
+$$
+Because $\beta_4 > 0$ we can conclude that the slope is steeper for weight program with encourage and it's more effective, because on average it leads to faster weight loss.
+
+### Interpreting quadratic trends:
+
+```{r quadratic_time_trend_no_interaction}
+wtloss.cs.quad.time <- gls(wgtloss~prog.fac + month + I(month^2),
+                           correlation=corCompSymm(form= ~1 | id),
+                           weights=varIdent(form= ~1),
+                           data=wtloss.uni,method="ML")
+summary(wtloss.cs.quad.time)
+```
+
+The model can be written as:
+$$
+\mathbb{E}(Y_{ij}) = \beta_1 + \beta_2 time_{ij} + \beta_3 time^2_{ij} + \beta_4group_{ij} 
+$$
+
+* $\hat{b}_{1} = 232.01185$
+* $\hat{b}_4 = -0.05028$
+
+Rate of change in program 1 is $\beta_2 + 2\beta_3 time_{ij}$.
+
+```{r}
+b3 <- wtloss.cs.quad.time$coefficients[3]
+b2 <- wtloss.cs.quad.time$coefficients[2]
+rate_of_change <- b2 + 2*b3*c(0:3)
+
+months <- matrix(1, nrow=4, ncol=4)
+months[, 3] <- c(0:3)
+months[, 4] <- c(0:3)^2
+
+exp_res_p2 <- months %*% wtloss.cs.quad.time$coefficients
+
+months[, 2] <- 0 
+exp_res_p1 <- months %*% wtloss.cs.quad.time$coefficients
+
+data.frame(time=0:3, rate_of_change=rate_of_change, expected_resp=exp_res_p1)
+```
+
+Thus, the mean response for Program 1 decreases over time.
+
+**What about Program 2?**
+
+Since rate of change doesn't depend on $\beta_4$ it is the same for program 2. Expected response is different. 
