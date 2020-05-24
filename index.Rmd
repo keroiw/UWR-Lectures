@@ -14,6 +14,7 @@ This webpage merge together all projects that were made during summer semester a
 * [Homework 2 - Logistic regression estimates and asymptotics](https://keroiw.github.io/UWR-Lectures/Modele2)
 * [Homework 3 - Poisson regression and role of factors in the model](https://keroiw.github.io/UWR-Lectures/Modele3)
 * [Homework 4 - Extensions of Poisson regression - overdispersion and zero-inflation](https://keroiw.github.io/UWR-Lectures/Modele4)
+* [Homework 4 - Repeated measures](https://keroiw.github.io/UWR-Lectures/Modele5)
 
 #### Big Data [PL/ENG.]
 

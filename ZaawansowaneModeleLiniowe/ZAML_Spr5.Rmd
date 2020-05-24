@@ -1,0 +1,594 @@
+---
+title: "Zaawansowane Modele Liniowe - Sprawozdanie 5"
+author: "Błażej Wiórek"
+date: "5/23/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message=FALSE, warning=FALSE)
+```
+
+```{r libraries}
+library(MASS)
+library(dplyr)
+library(tidyr)
+library(nlme)
+library(purrr)
+library(ggplot2)
+library(gridExtra)
+
+set.seed(45)
+```
+
+```{r functions}
+rep <- 500
+
+# Assignment 1 a)
+
+get_X <- function() {
+  X <- rnorm(N*(p-1), mean=0, sd=sqrt(1/N))
+  X <- matrix(data=X, nrow=N)
+  list(X=X, sub_x_idx=split(1:N, rep(1:n, each=k)))
+}
+
+get_Sigma <- function() {
+  Sigma <- matrix(ro, nrow=k, ncol=k)
+  diag(Sigma) <- 1
+  Sigma <- gamma^2 * Sigma
+  Sigma
+}
+
+## Assignment 1 b)
+
+get_beta <- function() {
+  beta <- rep(3, p)
+  beta[p] = 0
+  beta[1] = 0
+  beta
+}
+
+create_design_df <- function() {
+  beta <- get_beta()
+  
+  X_design <- matrix(0L, nrow=N, ncol=2 + p)
+  id <- rep(1:n, each=k)
+  treatment <- rep(1:3, n)
+
+  y_i_responses <- c()
+  for (i in 1:n) {
+    X_treatment <- X[sub_x_idx[[i]], ]
+    X_treatment <- cbind(rep(1, k), X_treatment)
+    y_i <- mvrnorm(n = 1, mu=X_treatment %*% beta, Sigma)
+    y_i <- matrix(data=y_i, nrow=3)
+    y_i_responses <- c(y_i_responses, y_i)
+  }
+  y_i_responses <- matrix(data=y_i_responses, ncol=1)
+
+  X_design[, 1] <- y_i_responses
+  X_design[, 2] <- id
+  X_design[, 3] <- treatment
+  X_design[, 4:(2+p)] <- X
+
+  X_design <- data.frame(X_design)
+  colnames(X_design) <- c("y", "id", "Time", paste(rep("X"), 1:(p-1), sep=""))
+
+  X_design <- X_design %>% mutate(id=as.factor(id),
+                                  Time=as.factor(Time))
+  X_design
+}
+
+make_experiment <- function(method='REML') {
+  X_design <- create_design_df()
+  model <- gls(y~.-id-Time,
+               correlation = corCompSymm(form=~1|id),
+               weights = varIdent(form=~1),
+               data = X_design,
+               method = method)
+  list(model=model, X_design=X_design)
+}
+
+# Assignment 1 c)
+
+sup_norm <- function(m1, m2) max(abs(as.vector(m1)-as.vector(m2)))
+bias_norm_sup <- function(estimates, true_val) max(abs(as.vector(estimates) - true_val))
+
+get_asymptotics <- function() {
+  helper_mtrx <- list()
+  beta_mtrx <- list()
+  
+  sigma <- get_Sigma()
+  for (i in 1:n) {
+    x_i <- X[sub_x_idx[[i]], ]
+    x_i <- cbind(rep(1, k), x_i)
+    sigma_inv <- solve(sigma)
+    helper_mtrx[[i]] <- t(x_i) %*% sigma_inv %*% x_i
+    beta_mtrx[[i]] <- t(x_i) %*% sigma_inv %*% experiment_info$X[sub_x_idx[[i]], "y"]
+  }
+  helper_mtrx <- reduce(helper_mtrx, function(x, y) x+y)
+  beta_mtrx <- reduce(beta_mtrx, function(x, y) x+y)
+  
+  beta_cov <- solve(helper_mtrx)
+  beta_est <- beta_cov %*% beta_mtrx
+  
+  list(beta_est=beta_est, beta_cov=beta_cov)
+}
+
+# Assignment 2
+
+get_ro_est <- function(model) {
+  sigma_est <- getVarCov(model)
+  sigma_est[lower.tri(sigma_est)][1] / gamma^2
+}
+
+get_gamma_est <- function(model) { getVarCov(model)[1,1] }
+
+extract_est <- function(model) {
+  x_labels <- paste(rep("X"), 1:(p-1), sep="")
+  est_coefs <- model$coefficients[c('(Intercept)', x_labels)]
+  sigma_est <- getVarCov(model)
+  ro_est <- get_ro_est(model)
+  gamma_est <- get_gamma_est(model)
+  
+  est_arr <- c(ro_est, gamma_est, est_coefs)
+  names(est_arr) <- c("ro", 'gamma', 'Intercept', x_labels)
+  t(data.frame(est_arr))
+}
+
+collect_est <- function(method='REML') {
+  model <- make_experiment(method)$model
+  extract_est(model)
+}
+
+get_asymptotic_density <- function(mu, sd, min_v=-3, max_v=9) {
+  dens_arg <- seq(min_v, max_v, by=0.1)
+  dens <- dnorm(dens_arg, mean=mu, sd=sd)
+  data.frame(arg=dens_arg, val=dens)
+}
+
+estimate_bias <- function(val_series, true_val) {mean(as.vector(val_series-true_val))}
+
+summarize_results <- function(est_df) {
+  beta <- get_beta()
+
+  intercept_distr <- get_asymptotic_density(beta[1], sqrt(beta_cov[1,1]), min_v=-1.5, max_v=1.5)
+  intercept_bias <- estimate_bias(est_df[['Intercept']], 0)
+  intercept_norm_sup <- bias_norm_sup(est_df[['Intercept']], 0)
+  hist_intercept <- est_df %>%
+                  ggplot(aes(Intercept)) +
+                  geom_histogram(aes(y=..density..)) + 
+                  geom_line(data=intercept_distr, aes(x=arg, y=val), color="red", size=1.2, alpha=0.6) + 
+                  geom_vline(xintercept = 0, linetype="dotted", color = "steelblue", size=1.5) +
+                  ggtitle(paste('Intercept, bias: ', round(intercept_bias, 3), ", n. sup.: ", round(intercept_norm_sup, 3)))
+
+  x1_distr <- get_asymptotic_density(beta[2], sqrt(beta_cov[2, 2]))
+  x1_bias <- estimate_bias(est_df[['X1']], 3)
+  x1_norm_sup <- bias_norm_sup(est_df[['X1']], 3)
+  hist_x1 <- est_df %>%
+    ggplot(aes(X1)) +
+    geom_histogram(aes(y=..density..)) + 
+    geom_line(data=x1_distr, aes(x=arg, y=val), color="red", size=1.2, alpha=0.6) + 
+    geom_vline(xintercept = 3, linetype="dotted", color = "steelblue", size=1.5) +
+    ggtitle(paste('X1, bias: ', round(x1_bias, 3), ", n. sup.: ", round(x1_norm_sup, 3)))
+
+  ro_bias <- estimate_bias(est_df[['ro']], 0.3)
+  hist_ro <- est_df %>%
+    ggplot(aes(ro)) +
+    geom_histogram(aes(y=..density..)) + 
+    geom_vline(xintercept = 0.3, linetype="dotted", color = "steelblue", size=1.5) +
+    ggtitle(paste('Ro, bias: ', round(ro_bias, 3)))
+
+
+  gamma_bias <- estimate_bias(sqrt(est_df[['gamma']]), 2)
+  hist_gamma <- est_df %>%
+    ggplot(aes(gamma)) +
+    geom_histogram(aes(y=..density..)) + 
+    geom_vline(xintercept = 2, linetype="dotted", color = "steelblue", size=1.5) +
+    ggtitle(paste('Gamma, bias: ', round(gamma_bias, 3)))
+  
+  summary_df <- data.frame(int_bias=intercept_bias, 
+                           int_norm=intercept_norm_sup, 
+                           x1_bias=x1_bias,
+                           x1_norm=x1_norm_sup,
+                           ro_bias=ro_bias,
+                           gamma_bias=gamma_bias)
+  
+  list(intercept=hist_intercept, 
+       x1=hist_x1, 
+       ro=hist_ro, 
+       gamma=hist_gamma, 
+       summary_df=summary_df)
+}
+  
+summaries <- list()
+```
+
+### Wprowadzenie do problemu
+
+Pomiary wielokrotne to metodyka organizowania eksperymentów badawczych w taki sposób, że dane podmiotów badania są cyklicznie powtarzane w określonych punktach czasowych. Standardowym przykładem i jednocześnie podstawowym zakresem zastosowania takiego podejścia są dane kliniczne. W badaniach tych można badać np. skuteczność pewnego leku/leków na określonej grupie pacjentów. W podstawowym scenariuszu pacjenci dzieleni są na grupy ze względu na przyjmowany lek. Jako, że skutki kuracji rozłożone są w czasie, pacjenci podlegają okresowym kontrolom, podczas których zbierane są informacje na temat stanu ich zdrowia i skutków leczenia. Warto zwrócić uwagę, że przy takim scenariuszu nie można założyć niezależności obserwacji odpowiadających konkretnemu pacjentowi, można natomiast oczekiwać niezależności pomiędzy pacjentami. 
+
+Model, który można zastosować przy przedstawionej strukturze danych może mieć postać:
+$$
+y_{ij}=X^T_{ij}\beta + \epsilon_{ij}
+$$
+Przy czym uznajemy, że:
+
+* $y_{ij}$ to j-ta obserwacja dla i-tego obiektu
+* $X_{ij}$ wektor zmiennych objaśnianych dla i-tego obiektu w j-tej obserwacji
+* $\epsilon_{ij} \sim N(0, \sigma_{ij}^2)$, przy czym $cov(\epsilon_{ij}, \epsilon_{lk})=0$ dla $i \neq l$, ale $cov(\epsilon_{ij}, \epsilon_{ik}) \neq 0$
+
+Aby uwzględnić założenie o potencjalnej korelacji pomiędzy kolejnymi pomiarami danego podmiotu modeluje się rozkład łączny wektora zmiennych objaśnianych. Mam zatem: $y_i \sim N(X_i\beta, \Sigma)$, przy czym $cov((Y_{i1}, ..., Y_{ip})) = \Sigma$. Wniosek jest taki, że poza wyestymowaniem wektora współczynników modelu $\beta$, konieczne jest wyestymowanie macierzy kowariancji $\Sigma$. Aby zmniejszyć liczbę estymowanych parametrów stosuje się różnego rodzaju podejścia ograniczające strukturę macierzy $\Sigma$. W niniejszym zadaniu dane generowane są z modelu dla którego:
+
+$$
+\beta=(3,3,0)^T
+$$
+
+$$
+\Sigma = 
+\begin{pmatrix}
+1 & \rho & ... & \rho\\
+\rho & 1 & ... & \rho\\
+... & ... & ... & ...\\\
+\rho & \rho & ... & 1
+\end{pmatrix}
+$$
+
+Taką postać macierzy kowariancji nazywa się Compound Symmetry. W przedstawionym przypadku dodatkowym założeniem jest równość wariancji dla poszczególnych pomiarów.
+
+Istnieją dwie podstawowe metody estymacji $\Sigma$. Pierwszy z nich oparty jest na numerycznym wyznaczeniu $\hat{\Sigma}$, korzystając z funkcji maximum likelihood. Okazuje się jednak, ze taka postać estymatora me tendencje do niedoszacowania wariancji (estymator jest obciążony). Sytuacje taką obserwuje się szczególnie w przypadku, gdy liczba obserwacji jest niewielka. Częściowym rozwiązaniem tego problemu jest skorzystanie z tzw. Restricted Maximum Likelihood Estimation (REML). Okazuje się, że często $\hat{\Sigma}_{REML}$ lepiej odzwierciedla strukturę kowariancji. Nie jest to jednak fakt poparty dowodem, ale zaledwie obserwacja empiryczna. 
+
+Aby przeprowadzić wnioskowanie na podstawie dopasowanego modelu konieczna jest znajomość rozkładu wektora parametrów $\beta$. Okazuje się, że można udowodnić następujący fakt:
+$$
+\hat{\beta} \rightarrow N(\beta, (\sum^n_{i=1}X_i^T\Sigma^{-1}X_i)^{-1}) 
+$$
+
+## Zadanie 1
+
+```{r assignment_1_setup}
+n <- 20
+k <- 3
+p <- 4
+N <- n * k
+ro <- 0.3
+gamma <- 2
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+experiment_info <- make_experiment()
+model <- experiment_info$model
+```
+
+```{r model_summary}
+summary(model)
+```
+
+Na podstawie podsumowania dopasowanego modelu można zauważyć, że: 
+
+* Wariancja jest stała dla każdego pomiaru
+* $\hat{\rho}=0.4971741$
+* $p = 4$ = intercept + $X_1$ + $X_2$ + $X_3$
+
+Jako, że podpunkty a) oraz b) mają na celu przygotowanie symulacji, rozpoczynam od podpunktu c).
+
+#### Podpunkt c) - wektor $\hat{\beta}$
+
+Zadanie polega na porównaniu estymatora $\hat{\beta}$ oraz jego wariancji $cov(\hat{\beta})$ wyliczonych na podstawie wzorów:
+$$
+\hat{\beta} = (\sum^n_{i=1}X_i^T \hat{\Sigma}^{-1} X_i)^{-1}(\sum^n_{i=1}X_i^T \hat{\Sigma}^{-1} y_i)
+$$
+
+$$
+cov(\hat{\beta}) = (\sum^n_{i=1}X_i^T \hat{\Sigma}^{-1} X_i)^{-1}
+$$
+oraz odpowiadających im wartości uzyskanych z dopasowanego modelu. 
+
+```{r vector_beta}
+model.ml <- gls(y~.-id-Time,
+               correlation = corCompSymm(form=~1|id),
+               weights = varIdent(form=~1),
+               data = experiment_info$X_design,
+               method = "ML")
+
+beta_ml <- model.ml$coefficients
+beta_cov_ml <- vcov(model.ml)
+
+coefs <- data.frame(beta_ml)
+colnames(coefs) <- c("ML_coef")
+rownames(coefs) <- c("Intercept", paste(rep("X", 3), 1:3))
+coefs$REML_coef <- model$coefficients
+round(coefs, 3)
+```
+
+```{r covariance_mtrx_comparison}
+reml_vcov <- vcov(model)
+ml_vcov <- vcov(model.ml)
+
+rownames(reml_vcov) <- paste(rep("REML_", 4), rownames(reml_vcov), sep="")
+colnames(reml_vcov) <- colnames(reml_vcov)
+
+rownames(ml_vcov) <- paste(rep("ML_", 4), rownames(ml_vcov), sep="")
+
+round(rbind(reml_vcov, ml_vcov), 3)
+```
+
+Jak sugerują nazwy kolumn, różnica pomiędzy wynikami  wynika z różnicy w sposobie estymacji macierzy $\Sigma$, która to macierz wykorzystywana jest do wyznaczenia $\hat{\beta}$. Zaproponowane obliczenia ręczne związane są z $\hat{\Sigma}_{ML}$, natomiast wartości uzyskane z modelu odpowiadają $\hat{\Sigma}_{REML}$. Różnice pomiędzy wartościami są niewielkie. W tabeli poniżej przedstawiono wartość normy supremum dla odpowiednich estymatorów. 
+
+```{r sup_norms}
+cov_mtrx_norm <- sup_norm(vcov(model), vcov(model.ml))
+beta_norm <- sup_norm(model$coefficients, model.ml$coefficients)
+round(data.frame(covariance_norm=cov_mtrx_norm, beta_norm=beta_norm), 5)
+```
+
+#### Podpunkt c) - macierz $\Sigma$
+
+Aby ocenić jakość estymatora $\hat{\Sigma}_{REML}$ wystarczy porównać parametry $\rho$ oraz $\gamma$ z ich estymatorami. Wynika to z zastosowania macierzy kowariancji o strukturze Compound Symmetry i założenia o jednakowej wariancji w każdym z pomiarów. 
+
+```{r covariance_estimates}
+get_gamma_est <- function(model) { sqrt(getVarCov(model)[1,1]) }
+
+get_ro_est <- function(model) {
+  sigma_est <- getVarCov(model)
+  var_est <- sigma_est[1,1]
+  sigma_est[2,1]/var_est
+}
+
+ro_est <- get_ro_est(model)
+ro_sup <- sup_norm(rep(ro, 3), ro_est)
+
+gamma_est <- model$sigma
+gamma_sup <- sup_norm(gamma_est, sqrt(gamma))
+
+summary_df <- data.frame(ro=c(ro_est[1], ro, ro_sup), 
+                         gamma=c(gamma_est, gamma, gamma_sup))
+rownames(summary_df) <- c("estimator", "true value", "norm")
+summary_df
+```
+
+## Zadanie 2
+
+Zadania 2, 3, 4, 5 i 6 mają na celu określenie wpływu aspektów takich jak: liczba obiektów, liczba pomiarów, liczba predyktorów i metoda estymacji macierzy $\Sigma$ na dopasowanie modelu. Wyniki eksperymentu prezentowane są w następujący sposób:
+
+* Asymptotyczne własności estymatora $\beta$: Narysowane zostały histogramy dla $\beta_0$ oraz $\beta_1$ wraz z ich asymptotycznymi gęstościami. Dodatkowo zostało wyestymowane obciążenie estymatora $\beta$ ($\mathbb{E}[\hat{\beta} - \beta]$) oraz jego norma supremum.
+* Asymptotyczne własności estymatora $\Sigma$: Narysowane zostały histogramy estymatorów $\hat{\rho}$ oraz $\hat{\gamma}$. Wyestymowane zostały obciążenia tych estymatorów.
+
+Jako, że wszystkie podpunkty mają podobny charakter rozpocząłem od narysowania histogramów umieszczając w podpisach odpowiednie wartości, następnie przedstawione zostało całościowe zestawienie. 
+
+```{r assignment_2}
+est_df <- do.call(rbind, replicate(rep, collect_est(), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$reml_basic <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 3
+
+```{r assignment_3}
+n <- 100
+k <- 3
+p <- 4
+N <- n * k
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$reml_n <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 4
+
+```{r assignment_4}
+n <- 20
+k <- 15
+p <- 4
+N <- n * k
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$reml_k <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 5
+
+```{r assignment_5}
+n <- 20
+k <- 3
+p <- 20
+N <- n * k
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$reml_p <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 6
+
+## Zadanie 2 - ML
+
+```{r assignment_2_ML}
+n <- 20
+k <- 3
+p <- 4
+N <- n * k
+ro <- 0.3
+gamma <- 2
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(method='ML'), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$ml_basic <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 3 - ML
+
+```{r assignment_3_ML}
+n <- 100
+k <- 3
+p <- 4
+N <- n * k
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(method='ML'), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$ml_n <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 4 - ML
+
+```{r assignment_4_ML}
+n <- 20
+k <- 15
+p <- 4
+N <- n * k
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(method='ML'), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$ml_k <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+## Zadanie 5 - ML
+
+```{r assignment_5_ML}
+n <- 20
+k <- 3
+p <- 17
+N <- n * k
+
+X_info <- get_X()
+X <- X_info$X
+sub_x_idx <- X_info$sub_x_idx
+
+Sigma <- get_Sigma()
+
+est_df <- do.call(rbind, replicate(rep, collect_est(method='ML'), F))
+est_df <- data.frame(est_df)
+rownames(est_df) <- NULL
+
+beta_asymptotics <- get_asymptotics()
+beta_cov <- beta_asymptotics$beta_cov
+
+h_lst <- summarize_results(est_df)
+summaries$ml_p <- h_lst$summary_df
+grid.arrange(h_lst$intercept, h_lst$x1, h_lst$ro, h_lst$gamma, ncol=2)
+```
+
+### Podsumowanie
+
+```{r final_summary}
+summaries <- reduce(summaries, rbind)
+reml_rows <- paste(rep("REML", 4), c("base", "ob", "trt", "pred"))
+ml_rows <- paste(rep("ML", 4), c("base", "ob", "trt", "pred"))
+rownames(summaries) <- c(reml_rows, ml_rows)
+round(summaries, 4)
+```
+
+Przyjmuje następujące oznaczenia:
+
+* n - liczba obiektów
+* k - liczba pomiarów na każdym obiekcie
+* p - liczba kolumn w macierzy planu
+* N = n*k - liczba zmiennych objaśnianych $y_{ij}$
+
+Wiersze oznaczone jako 'base' związane są ze scenariuszem wyjściowym, gdzie n=20, k=3, p=4. 
+
+* Scenariusz oznaczony 'ob' ma na celu sprawdzenie wpływu liczby obiektów tzn. n=100.  
+* Scenariusz oznaczony 'trt' ma na celu sprawdzenie wpływu liczby pomiarów tzn. k=15.  
+* Scenariusz oznaczony 'pred' ma na celu sprawdzenie wpływu liczby predyktorów tzn. p=20.  
+
+Obserwacje:
+
+* Zwiększenie liczby obiektów spowodowało poprawę jakości estymacji
+* Zwiększenie liczby pomiarów spowodowało poprawę jakości estymacji, jednak wydaje się, że poprawa jest mniejsza niż w przypadku zwiększenia liczby obiektów
+* Zwiększenie liczby predyktorów spowodowało pogorszenie jakości estymowanych parametrów, szczególnie w przypadku ML
+
+We wszystkich przypadkach rozkład przedstawiony na histogramach jest zbliżony do rozkładu asymptotycznego. Warto zauważyć, że w przypadku $\hat{\Sigma}_{ML}$ wartości biasu dla parametru gamma są niedoszacowane względem wartości prawdziwych oraz tych, które zostały otrzymane za pomocą REML.
+
+
+
+
+
