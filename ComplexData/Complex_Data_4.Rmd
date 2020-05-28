@@ -1,0 +1,216 @@
+---
+title: "Complex Data - Homework 4"
+author: "Błażej Wiórek"
+date: "5/27/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(nlme)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Exercise 1: Inferences about the population
+
+Calculations in this exercise are based on the following equations:
+
+* Marginal mean: $\mathbb{E}[Y_i] = X_i\beta$, which yields:
+  * For patients on drug A: $\hat{\mathbb{E}}(Y_{ij}|drug=A) = \hat{\beta}_1 + \hat{\beta}_3 time_{ij}$
+  * For patients on drug B: $\hat{\mathbb{E}}(Y_{ij}|drug=B) = \hat{\beta}_1 + \hat{\beta}_2 + (\hat{\beta}_3+\hat{\beta}_4) time_{ij}$
+* Marginal variance: $Var[Y_i] = Z_i G Z_i^T + R_i$ and due to assumption of conditional independence we have that $R_i = \sigma^2 I$
+
+```{r population_inference}
+hrunbalanced <- read.csv(file="/home/wiorek/Downloads/hrunbalanced.csv")
+
+fit.RandSlp <- lme(hr ~ time*factor(drug), # "*" main effects + interaction
+                   random=~1+time|id,
+                   data=hrunbalanced)
+
+get_patient <- function(id) { hrunbalanced[hrunbalanced$id==id, ] }
+
+postprocess_var <- function(var_mtrx, time_arr)  {
+  time_points <- paste("t", time_arr, sep="_")
+  colnames(var_mtrx) <- time_points
+  rownames(var_mtrx) <- time_points
+  var_mtrx
+}
+
+postprocess_mean <- function(mean_mtrx, time_arr) {
+  time_points <- paste("t", time_arr, sep="_")
+  rownames(mean_mtrx) <- time_points
+  colnames(mean_mtrx) <- c("Marginal_Mean")
+  mean_mtrx
+}
+
+### p1
+
+X1 <- matrix(1, nrow=6, ncol=4)
+Z1 <- matrix(1, nrow=6, ncol=2)
+time_1 <- c(0, 1,5, 15, 30, 45)
+
+X1[,2] <- time_1
+X1[,3] <- 0
+X1[,4] <- 0
+Z1[,2] <- time_1
+
+### p2
+
+X2 <- matrix(1, nrow=6, ncol=4)
+Z2 <- matrix(1, nrow=6, ncol=2)
+time_2 <- c(0, 1,5, 15, 22, 60)
+
+X2[,2] <- time_2
+X2[,3] <- 0
+X2[,4] <- 0
+Z2[,2] <- time_2
+
+### p13
+
+X13 <- matrix(1, nrow=4, ncol=4)
+Z13 <- matrix(1, nrow=4, ncol=2)
+time_13 <- c(0, 1, 15, 60)
+
+X13[,2] <- time_13
+X13[,4] <- time_13
+Z13[,2] <- time_13
+
+coefs_v <- matrix(unlist(fit.RandSlp$coefficients$fixed), nrow=4)
+G <- getVarCov(fit.RandSlp, type="random.effects")
+sigma_2 <- fit.RandSlp$sigma^2
+
+marginal_E_1 <- X1 %*% coefs_v
+marginal_VAR_1 <- Z1 %*% G %*% t(Z1) + sigma_2 * diag(dim(X1)[1]) 
+
+marginal_E_2 <- X2 %*% coefs_v
+marginal_VAR_2 <- Z2 %*% G %*% t(Z2) + sigma_2 * diag(dim(X2)[1]) 
+
+marginal_E_13 <- X13 %*% coefs_v
+marginal_VAR_13 <- Z13 %*% G %*% t(Z13) + sigma_2 * diag(dim(X13)[1]) 
+```
+
+### Patient 1
+
+#### Marginal mean
+```{r patient_1_mean}
+postprocess_mean(marginal_E_1, time_1)
+```
+
+#### Marginal variance
+```{r patient_1_var}
+postprocess_var(marginal_VAR_1, time_1)
+```
+
+### Patient 2
+
+#### Marginal mean
+```{r patient_2_mean}
+postprocess_mean(marginal_E_2, time_2)
+```
+
+#### Marginal variance
+```{r patient_2_var}
+postprocess_var(marginal_VAR_2, time_2)
+```
+
+### Patient 13
+
+#### Marginal mean
+```{r patient_13_mean}
+postprocess_mean(marginal_E_13, time_13)
+```
+
+#### Marginal variance
+```{r patient_13_var}
+postprocess_var(marginal_VAR_13, time_13)
+```
+
+Plot below represents the trajectories of patients of interest. The trajectories for patient 1 and 2 overlaps because they are treated with the same drug. The only difference are points of measurments. Teajectory for patient 13 is siginificantly different in terms of intercept, but there's only tiny difference in slope. 
+
+```{r patient_trajectories, echo=F}
+variances <- lapply(list(marginal_VAR_1, marginal_VAR_2, marginal_VAR_13), diag)
+patients_df <- bind_rows(lapply(c(1, 2, 13), get_patient)) %>%
+                mutate(marginal_E = rbind(marginal_E_1, marginal_E_2, marginal_E_13),
+                       marginal_VAR = unlist(variances),
+                       patient_drug = paste(id, drug, sep="_")) %>%
+                select(-c(id, drug, hr, t)) %>%
+                mutate(lwr=marginal_E-sqrt(marginal_VAR),
+                       upr=marginal_E+sqrt(marginal_VAR))
+
+patients_df %>%
+  ggplot(aes(x=time, y=marginal_E, color=patient_drug)) + 
+  #geom_errorbar(aes(ymin=lwr, ymax=upr), position=position_dodge(0.2)) + 
+  geom_point(position=position_dodge(0.2), alpha=0.7) +
+  geom_line(alpha=0.4) +
+  ylab("Marginal mean") +
+  ggtitle("Marginal mean for patients: 1, 2, 13")
+```
+
+## Excercise 2: Two-Stage analysis: "NIH METHOD"
+
+Stage 1:
+
+* $Y_{ij} = intercept_i + slope_i*t_{ij} + \epsilon_{ij}$
+
+Stage 2: 
+
+* $intercept_i = \beta_0 + \beta_1*Drug+\epsilon_{i1}$
+* $slope_i = \beta_2 + \beta_3*Drug+\epsilon_{i2}$
+
+Substituting equations from stage 2 into equation from stage 1 yields random intercept and slope model:
+$$
+Y_{ij} = \beta_0 + \beta_1*Drug + \beta_2*t_{ij} + \beta_3 * Drug * t_{ij} + \epsilon_{ij}
+$$
+Comparison of Two-Stage and Mixed Effects models:
+```{r NIH, echo=F}
+patients_ids <- unique(hrunbalanced$id)
+get_patient <- function(id) { hrunbalanced[hrunbalanced$id==id, ] }
+
+stage1_mtrx <- matrix(0L, ncol=4, nrow=length(patients_ids)) 
+stage1_mtrx <- as.data.frame(stage1_mtrx)
+colnames(stage1_mtrx) <- c("id", "drug", "slope", "intercept")
+for (i in 1:length(patients_ids)) {
+  p_id <- patients_ids[i]
+  patient <- get_patient(p_id)
+  patient_model <- lm(hr~time,
+                      data=patient)
+  stage1_mtrx[i, "id"] <- p_id[1]
+  stage1_mtrx[i, "drug"] <- patient$drug[1]
+  stage1_mtrx[i, c("intercept", "slope")] <- patient_model$coefficients
+}
+
+patient.int <- lm(intercept ~ factor(drug), data=stage1_mtrx)
+patient.slp <- lm(slope ~ factor(drug), data=stage1_mtrx)
+
+convert_to_mixed <- function(int_model, slp_model) {
+  int_summary <- summary(int_model)$coefficients[, c(1, 4)]
+  slp_summary <- summary(slp_model)$coefficients[, c(1, 4)]
+  nih_summary <- rbind(int_summary, slp_summary)
+  nih_summary <- nih_summary[c(1, 3, 2, 4), ]
+  rownames(nih_summary) <- c("(Intercept)", "time", "factor(drug)b", "time:factor(drug)b")
+  colnames(nih_summary) <- paste(rep(c("NIH:"), 2), colnames(nih_summary), sep="")
+  nih_summary
+}
+
+compare_with_mixed <- function(mixed_model, two_stage_summary) {
+  mixed_summary <- summary(mixed_model)$tTable[, c(1, 5)]
+  colnames(mixed_summary) <-paste(rep(c("Mixed:"), 2), colnames(mixed_summary), sep="")
+  comparison_df <- cbind(two_stage_summary, mixed_summary)
+  round(comparison_df[, c(1, 3, 2, 4)], 5)
+}
+
+two_stage_summary <- convert_to_mixed(patient.int, patient.slp)
+models_comparison <- compare_with_mixed(fit.RandSlp, two_stage_summary)
+models_comparison
+```
+
+As expected there are only small differences between fitted models and the inferences lead to the same conclusions:
+
+* The Intercept and time are statistically significant, meaning that the groups in each treatment were different in the beginning of the experiment and patient trajectories present significant descending trend.
+* We fail to reject the null hypothesis about  $factor(drug)b$ and $time:factor(drug)b$. The conclusion is that there are no significant differences in the efficiency of drug A and drug B both in terms of mean intercept and mean slope.
+
+When above observations are considered simultaneously it seems that the mean heart rate is decreasing over time but not due to drug application. It seems natural because process of application might be considered as stresfull and it may temporarily increase heart rate.

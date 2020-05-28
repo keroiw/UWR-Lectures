@@ -14,7 +14,7 @@ This webpage merge together all projects that were made during summer semester a
 * [Homework 2 - Logistic regression estimates and asymptotics](https://keroiw.github.io/UWR-Lectures/Modele2)
 * [Homework 3 - Poisson regression and role of factors in the model](https://keroiw.github.io/UWR-Lectures/Modele3)
 * [Homework 4 - Extensions of Poisson regression - overdispersion and zero-inflation](https://keroiw.github.io/UWR-Lectures/Modele4)
-* [Homework 4 - Repeated measures](https://keroiw.github.io/UWR-Lectures/Modele5)
+* [Homework 5 - Repeated measures](https://keroiw.github.io/UWR-Lectures/Modele5)
 
 #### Big Data [PL/ENG.]
 
@@ -27,6 +27,7 @@ This webpage merge together all projects that were made during summer semester a
 * [Homework 1 - The basics of repeated measures](https://keroiw.github.io/UWR-Lectures/ComplexData1)
 * [Homework 2 - Likelihood and Wald tests for GLS](https://keroiw.github.io/UWR-Lectures/ComplexData2)
 * [Homework 3 - Various types of covariance structure](https://keroiw.github.io/UWR-Lectures/ComplexData3)
+* [Homework 4 - Linear mixed model via two-stage analysis](https://keroiw.github.io/UWR-Lectures/ComplexData4)
 
 #### Methods of classification and dimensionality reduction [ENG.]
 
