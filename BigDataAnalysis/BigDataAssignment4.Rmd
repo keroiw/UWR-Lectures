@@ -1,0 +1,351 @@
+---
+title: "Big Data Homework - 4"
+author: "Błażej Wiórek"
+date: "5/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(MASS)
+library(dplyr)
+library(tidyr)
+library(nlme)
+library(purrr)
+library(ggplot2)
+library(gridExtra)
+library(textshape)
+library(wesanderson)
+
+set.seed(31)
+```
+
+```{r functions}
+## Assignment 1
+
+euclid_norm <- function(X) sum(X^2)
+
+loss <- function(t_v, est_v) sum((t_v - est_v)^2)
+
+js_estimate <- function(X) {
+    p <- length(X)
+    (1 - (p-2)/euclid_norm(X))*X
+}
+
+eb_estimate <- function(X) {
+  p <- length(X)
+  mean_X <- mean(as.vector(X))
+  S <- sum((X - mean_X)^2)
+  mean_X + (1 - (p-3)/S)*(X - mean_X)
+}
+
+meb_estimate <- function(X, sigma) {
+  p <- length(X)
+  ev <- eigen(sigma)$values
+  ev_max <- max(ev)
+  tr_s <- sum(diag(sigma))
+  p_hat <- tr_s/ev_max
+  (1 - (p_hat-2)/(t(X) %*% solve(sigma) %*% X)) %*% X
+}
+
+make_experiment <- function(X, true_mu) {
+  js <- js_estimate(X)
+  eb <- eb_estimate(X)
+  data.frame(MLE=loss(true_mu, X), 
+             JS=loss(true_mu, js),
+             EB=loss(true_mu, eb))
+}
+
+## Assignment 2
+
+make_experiment_2 <- function(X, sigma, true_mu) {
+  meb <- meb_estimate(X, sigma)
+  data.frame(mle=loss(true_mu, X), 
+             meb=loss(true_mu, meb))
+}
+
+make_plot <- function(summary_long) {
+  g <- summary_long %>%
+       ggplot(aes(x=estimator, y=loss, color=estimator)) +
+          geom_boxplot() + 
+          facet_wrap(.~experiment) 
+  g
+}
+ 
+get_mean <- function(summary_long) {
+  summary_long %>%
+    group_by(experiment, estimator) %>%
+    dplyr::summarize(Mean = mean(loss, na.rm=TRUE)) %>%
+    pivot_wider(names_from = experiment, values_from = Mean) %>%
+    column_to_rownames(loc=1) %>%
+    round(3)
+}
+
+## Assignment 3
+
+get_p_values <- function(X) {
+  X_v <- as.vector(X)
+  p_val <- 2*pmin(pnorm(X_v), 1-pnorm(X_v))
+}
+
+hard_thresh_bonferroni <- function(X, alpha=0.1) {
+  p_val <- get_p_values(X)
+  bonf_p <- p.adjust(p_val, method="bonferroni")
+  bonf_est <- X
+  bonf_est[bonf_p > alpha] <- 0
+  bonf_est
+}
+
+hard_thresh_bh <- function(X, alpha=0.1) {
+  p_val <- get_p_values(X)
+  bh_p <- p.adjust(p_val, method="BH")
+  bh_est <- X
+  bh_est[bh_p > alpha] <- 0
+  bh_est
+}
+
+make_mu <- function(val, stop, p) {
+  mu <- rep(0, p)
+  mu[1:stop] <- val
+  mu
+}
+
+make_experiment_3 <- function(X, sigma, true_mu) {
+  mle <- X
+  js <- js_estimate(X)
+  bf <- hard_thresh_bonferroni(X)
+  bh <- hard_thresh_bh(X)
+  data.frame(mle=loss(true_mu, X), 
+             js=loss(true_mu, js),
+             bonferroni=loss(true_mu, bf),
+             bh=loss(true_mu, bh))
+}
+```
+
+### Stein phenomenon
+
+Let's assume that: $Y \sim N(\mu, \sigma^2I)$ and $y$ represents single observation from such distribution. We are interested in estimating $\mu$. Maximum Likelihood Estimator (MLE) for $\mu$ is sample mean. In presented case we have a single vector, hence MLE is: $\hat{\mu}_{MLE}=y$. it turns out that there are better estimators in terms of mean squared error $\mathbb{E}[||\mu - \hat{\mu}||^2]$. This result is known as Stein phenomenon. 
+
+The estimator that was announced is called James-Stein estimator and it is given by:
+
+$$
+\hat{\mu}_{JS} = (1 - \frac{\sigma^2(p-2)}{||X||^2})X \text{ ,where } p>2
+$$
+
+Since $(p-2)\sigma^2 <||y||^2$, it's immediate that presented estimator shrinks $\hat{\mu}_{MLE}$ towards zero. This idea can be generalized to shrinkage towards any arbitrary vector $v$.
+
+$$
+\hat{\mu} = (1 - \frac{\sigma^2(p-3)}{||y - v||^2})(y - v) + v \text{ ,where } p>3
+$$
+The important property of both estimators is if $p > 3$ then for both JS estimators we have that: $\mathbb{E}||\hat{\mu} - \mu||^2 < \mathbb{E}||\hat{\mu}_{MLE} - \mu||^2$.
+
+### Estimating via multiple testing procedures
+
+Estimation base on multiple testing is based on the idea of separating noise from true signals. If signal $\mu_i$ is strong then it should be taken under consideration in estimation process, otherwise it is considered as noise and can be neglected. Such construction should perfmorm well when vector $\mu$ is sparse.
+$$
+\hat{\mu_i} = \begin{cases} X_i & \mbox{if } H_{0,i} \text{ is rejected} \\ 0 & \mbox{if } H_{0,i} \text{ is not rejected} \end{cases}
+$$
+
+## Assignment 1
+
+Simulate 500 realizations of the random vector $X = (X_1, ..., X_p) \sim N(\mu, I)$ where $p = 500$
+
+* $\mu = 0$
+* $\mu$ is obtained by a simulation (just once) from $N(0, 5I)$
+* $\mu_1,... ,\mu_p$ are obtained as iid from $N(20, 5)$ (just once).
+
+For each of these cases compare the mean square error of the maximum likelihood estimate
+X, classical James-Stein estimate $\hat{\mu}_{JS}=(1-\frac{p-2}{||X||^2})X$ and the Empirical Bayes estimate $\mu_i^{EB}=\bar{X} + (1 - \frac{p-3}{S})(X_i - \bar{X})$, where $S=\sum^p_{i=1}(X_i - \bar{X})^2$.
+
+It's not difficult to see that $\hat{\mu}_{JS}$ refers to estimator that shrinks towards zero and $\mu_i^{EB}$ shrinks towards mean. 
+
+```{r assignment_1}
+p <- 500
+n <- 500
+sigma <- diag(p)
+
+### a)
+true_mu_a <- rep(0, p)
+X <- mvrnorm(n=n, mu=true_mu_a, Sigma=sigma)
+res_1_a <- dplyr::bind_rows(apply(X, 1, make_experiment, true_mu=true_mu_a)) 
+res_1_a$experiment = rep("mu=0, var=1")
+
+### b)
+true_mu_b <- mvrnorm(n=1, mu=true_mu_a, Sigma=5*sigma)
+X <- mvrnorm(n=n, mu=true_mu_b, Sigma=sigma)
+res_1_b <- dplyr::bind_rows(apply(X, 1, make_experiment, true_mu=true_mu_b)) 
+res_1_b$experiment = rep("mu=0, var=5")
+
+### c)
+true_mu_c <- rnorm(n=p, mean=20, sd=sqrt(5))
+X <- mvrnorm(n=n, mu=true_mu_c, Sigma=sigma)
+res_1_c <- dplyr::bind_rows(apply(X, 1, make_experiment, true_mu=true_mu_c)) 
+res_1_c$experiment = rep("mu=20, var=5")
+
+### Conclusions
+res_summary <- rbind(res_1_a, res_1_b, res_1_c)
+res_summary.long <- res_summary %>%
+  mutate(index=rep(1:n, 3)) %>%
+  gather(key="estimator", value="loss", -c(index, experiment))
+
+summary_plot <- make_plot(res_summary.long)
+mean_summary <- get_mean(res_summary.long)
+```
+
+```{r assignment_1_plot}
+summary_plot + ggtitle("Estimators comparison")
+```
+
+Estimators performance summary:
+
+```{r assignment_1_mean_summary}
+mean_summary
+```
+
+In presented experiment both James-Stein and Empirical Bayes estimators clearly outperform MLE estimator. The risk of MLE is almost constant which is expected behavior because $R(\hat{\mu}_{MLE}, \mu) = \mathbb{E}||X-\mu||^2_2=p\sigma^2=500$. In the third case James-Stein estimator is almost as biased as MLE. This is due the following fact:
+
+$$
+\mathbb{E}||\hat{\mu}_{JS} - \mu||2 \leq p - \frac{p-2}{1 + \frac{||\mu||^2}{p-2}}
+$$
+
+Hence the expected loss grows to $p$ as $||\mu^2||$ grows. Upper boundary for expected loss in above experiments can be summarized as follows:
+
+```{r expected_loss}
+get_length <- function(v) sum(v^2)
+
+js_expected_loss <- function(mu, p) p - (p-2)/(1 + get_length(mu) / (p-2))
+
+data.frame(Experiment_1=js_expected_loss(true_mu_a, 500),
+           Experiment_2=js_expected_loss(true_mu_b, 500),
+           Experiment_3=js_expected_loss(true_mu_c, 500),
+           row.names = c("Expected loss JS"))
+```
+
+## Assignment 2
+
+Simulate $500$ realizations of the random vector $X=(X_1, ..., X_p) \sim N(\mu, \Sigma)$ where $p=500$ and the vector $\mu$ is as in Problem 1. Compare the mean square error of the maximum likelihood estimate X with the extension of James-Stein estimate by Mary Ellen Bock (1975).
+
+$$
+\mu_{MEB} = (1 - \frac{\bar{p}-2}{X^T\Sigma^{-1}X})X \text{, where } \hat{p} = \frac{Tr(\Sigma)}{\lambda_{max}(\Sigma)}
+$$
+
+```{r assignment_2}
+## Assignment 2
+sigma <- matrix(0.4, nrow=p, ncol=p)
+diag(sigma) <- 1
+
+### a)
+true_mu <- rep(0, p)
+X <- mvrnorm(n=n, mu=true_mu, Sigma=sigma)
+res_2_a <- dplyr::bind_rows(apply(X, 1, make_experiment_2, sigma=sigma, true_mu=true_mu)) 
+res_2_a$experiment = rep("mu=0, var=1")
+
+### b)
+X <- mvrnorm(n=n, mu=true_mu, Sigma=sigma)
+res_2_b <- dplyr::bind_rows(apply(X, 1, make_experiment_2, sigma=sigma, true_mu=true_mu)) 
+res_2_b$experiment = rep("mu=0, var=5")
+
+### c)
+true_mu <- rep(20, p)
+X <- mvrnorm(n=n, mu=true_mu, Sigma=sigma)
+res_2_c <- dplyr::bind_rows(apply(X, 1, make_experiment_2, sigma=sigma, true_mu=true_mu)) 
+res_2_c$experiment = rep("mu=20, var=5")
+
+### Conclusion plot
+res_summary <- rbind(res_2_a, res_2_b, res_2_c)
+res_summary.long <- res_summary %>%
+  mutate(index=rep(1:n, 3)) %>%
+  gather(key="estimator", value="loss", -c(index, experiment))
+
+summary_plot <- make_plot(res_summary.long)
+mean_summary <- get_mean(res_summary.long)
+```
+
+```{r assignment_2_plot}
+summary_plot + ggtitle("Performance in case of correlation")
+```
+
+```{r assignment_2_mean_summary}
+mean_summary
+```
+
+In this experiment observations $X_i$ are correlated and version of James-Stein estimator that adjust for this fact was proposed. In this settings the differences between MLE and MEB estimator are negligible. However it's true that $||\mu - \hat{\mu}_{MLE}||_2^2 < ||\mu - \hat{\mu_{MEB}}||_2^2$.
+
+## Assignment 3
+
+Simulate $500$ realizations of the random vector $X=(X_1,...,X_p) \sim N(\mu, I)$ where $p=500$ and the vector $\mu$ is equal to:
+
+1. $\mu_1=...=\mu_5=3.5$, $\mu_6=...=\mu_{500}=0$
+2. $\mu_1=...=\mu_{30}=2.5$, $\mu_{31}=...=\mu_{500}=0$
+3. $\mu_1=...=\mu_{100}=1.8$, $\mu_{101}=...=\mu_{500}=0$
+4. $\mu_1=...=\mu_{500}=0.4$
+5. $\mu_i=3.5i^{-\frac{1}{2}}$
+6. $\mu_i=3.5i^{-1}$
+
+For each of these examples compare the mean square error of the:
+
+* maximum likelihood estimator
+* James-Stein estimator
+* hard-thresholding rule based on the Bonferroni correction with the nominal FWER equal to 0.1
+* hard-thresholding rule based on the BH procedure with the nominal FDR equal to 0.1
+
+First four parts of the exercise are constructed in a way that simulate transition from strong and sparse signals to weak and dense signals. In the last two parts vectors are dense and contain few strong signals. 
+
+### Estimation based on multiple testing procedures
+
+The threshold for Bonferroni procedure is $\sqrt{2log500} \approx 3.535$, hence signals in all experiments are below required magnitude. It turns out that estimation based on Banjamini-Hochberg procedure and Bonferroni procedure have very similar performance in all cases, but Bonferroni procedure tends to perform better in scenarios 3-6. In experiments 1 and 2 the signals are sparse and relatively strong but still below Bonferroni optimal threshold. In such case Bonferroni procedure is not able to detect signals while Benjamini-Hochberg is able to do so. Even if BH makes more false discoveries, it is suppressed by the correct detections for significant $\mu$'s. In experiments 3 - 6, signals are so small that more conservative method starts to prevail.  
+
+### James-Stein estimator
+
+James-Stein estimator seems to outperform other estimators when $||X||^2$ is large. Table below contains lengths of vector $X$ and values of shrinkage coefficient $\frac{p-2}{||X||^2}$ for a single vector $X \sim N(\mu_i, I)$.
+
+```{r js_optimal}
+sigma <- diag(p)
+
+mu_vectors <- list()
+mu_vectors[[1]] <- make_mu(3.5, 5, p) 
+mu_vectors[[2]] <- make_mu(2.5, 30, p) 
+mu_vectors[[3]] <- make_mu(1.8, 100, p) 
+mu_vectors[[4]] <- make_mu(0.4, p, p) 
+mu_vectors[[5]] <- 3.5 * ((1:p)^(-1/2))
+mu_vectors[[6]] <- 3.5 * ((1:p)^(-1))
+
+X_mu <- lapply(mu_vectors, function(mu) mvrnorm(n=1, mu, Sigma=sigma))
+
+x_len <- unlist(lapply(X_mu, function(X) sum(X^2)))
+shrinkage <- unlist(lapply(x_len, function(x) (498/x)))
+shrinkage_impact <- round(data.frame(Shrinkage=shrinkage, X_len=x_len), 4)
+shrinkage_impact$Experiment <- paste("Experiment", rep(1:6), sep="_")
+shrinkage_impact[, c(3, 2, 1)]
+```
+
+```{r assignment_3}
+results_3 <- list()
+for (i in 1:6) {
+  mu <- mu_vectors[[i]]
+  X <- mvrnorm(n=n, mu, sigma)
+  res <- dplyr::bind_rows(apply(X, 1, make_experiment_3, sigma=sigma, true_mu=mu))
+  res$experiment <- paste("Exp", i, sep="_")
+  results_3[[i]] <- res
+}
+
+results_3 <- reduce(results_3, rbind)
+results_3$index = rep(1:n, 6)
+
+results_3.long <- results_3 %>%
+  gather(key="estimator", value="loss", -c(index, experiment))
+
+summary_plot <- make_plot(results_3.long)
+mean_summary <- get_mean(results_3.long)
+```
+
+```{r assignment_3_plot}
+summary_plot + ggtitle("Impact of signals sparsity and strength")
+```
+
+```{r assignment_3_mean_summary}
+mean_summary
+```
