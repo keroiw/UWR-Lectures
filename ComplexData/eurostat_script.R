@@ -174,29 +174,16 @@ eurozone <- toupper(c("finland", "greece", "portugal", "slovenia", "cyprus", "ma
                       "latvia", "lithuania", "ireland"))
 outsiders <- toupper(c("bulgaria", "croatia", "czechia", "hungary", "poland", "romania", "sweden", "united kingdom", "denmark"))
 
-#western <- toupper(c("ireland", "united kingdom", "france", "luxembourg", "belgium", "netherlands", "portugal", "spain"))
-#central <- toupper(c("germany", "austria", "czechia", "slovakia", "slovenia", "hungary", "poland", "greece", "malta", "cyprus"))
-#northern <- toupper(c("denmark", "finland", "sweden"))
-#estern <- toupper(c("croatia", "romania", "bulgaria", "estonia", "latvia", "lithuania", "italy"))
-
 dataset.full <- dataset %>% mutate(country=toupper(country))
 dataset.full <- merge(hdi.long, dataset.full) %>% 
   select("hdi", everything()) %>%
   mutate(state = case_when(country %in% leadership ~ "leadership",
                            country %in% eurozone ~ "eurozone",
                            country %in% outsiders ~ "outsiders"),
-         #region = case_when(country %in% western ~ "western",
-          #                  country %in% southern ~ "southern",
-          #                  country %in% central ~ "cental",
-          #                  country %in% northern ~ "northern",
-          #                  country %in% southestern ~ "southern",
-          #                  country %in% eastern ~ "eastern"),
          state = as.factor(state),
-         #region = as.factor(region), 
          year = as.numeric(year),
          hdi = as.numeric(levels(hdi))[hdi]) %>%
   select(-c("year_fct"))
-
 
 ## Imputation
 
@@ -231,7 +218,6 @@ fill_missing <- function(data, country_name, closest_countries, col_name) {
   data
 }
 
-#before_imput <- dataset %>% filter(country=="CROATIA") %>% ggplot(aes(x=year_fct, y=risk_poverty_pct)) + geom_point()
 to_impute <- dataset %>% filter(country=="CROATIA", is.na(risk_poverty_pct)) %>% select(year_fct)
 
 croatia_closest <- get_closest(dataset, "risk_poverty_pct", "CROATIA")
@@ -257,10 +243,8 @@ dataset.cohort %>%
 ggplot(aes(x=region, y=hdi)) + 
 geom_boxplot()
 
-#### Longitudinal
-        
 
-#### Mixed effects
+#### Mixed effects  
 
 fit.rand_slp <- lme(hdi ~ year*state + emp_pct + risk_poverty_pct, 
                     random=~1+year|country,
