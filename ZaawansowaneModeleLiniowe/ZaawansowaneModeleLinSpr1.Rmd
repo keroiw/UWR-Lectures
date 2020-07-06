@@ -1,8 +1,9 @@
 ---
-title: "Analiza dużych zbiorów danych 1"
+title: "Zaawansowane modele liniowe 1"
 author: "Błażej Wiórek"
 date: "3/17/2020"
-output: html_document
+knit: (function(input_file, encoding) { out_dir <- '../docs'; rmarkdown::render(input_file,
+  encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'Modele1.html'))})
 ---
 
 ```{r setup, include=FALSE}
@@ -24,7 +25,7 @@ Zbiór składa się z dwóch zmiennych objaśniających:
 
 Oraz zmiennej objaśnianej w postaci indykatora: anxiety $\in \{0, 1\}$
 
-```{r Data}
+```{r Data, echo=FALSE}
 data <- structure(list(numeracy = c(6.6, 7.1, 7.3, 7.5, 7.9, 7.9, 8,
                                  8.2, 8.3, 8.3, 8.4, 8.4, 8.6, 8.7, 8.8, 8.8, 9.1, 9.1, 9.1, 9.3,
                                  9.5, 9.8, 10.1, 10.5, 10.6, 10.6, 10.6, 10.7, 10.8, 11, 11.1,
@@ -44,7 +45,7 @@ data_df <- as.data.frame(data)
 
 Przed przejściem do właściwego zadania (dopasowania modelu) warto sprawdzić rozkład wartości w poszczególnych predyktorach oraz stosunek klas w zmiennej objaśnianej. 
 
-```{r DataVisualization}
+```{r DataVisualization, echo=FALSE}
 par(mfrow=c(3,1))
 g1 <- ggplot(data_df) + geom_histogram(aes(x=numeracy), binwidth = 0.5) + ggtitle("Numeracy histogram")
 g2 <- ggplot(data_df) + geom_histogram(aes(x=anxiety), binwidth = 1) + ggtitle("Anxiety histogram") 
@@ -72,7 +73,7 @@ $$
 
 Przy czym $p_i = P(Y=1|X_i)$.
 
-```{r ModelFitLogit}
+```{r ModelFitLogit, echo=FALSE}
 model_logit <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial)
 summary(model_logit)
 ```
@@ -84,13 +85,13 @@ $$
 
 Przedstawione wartości statystyki testowej oznaczone jako 'z value' i związane z nimi p-wartości 'Pr(>|z|)' odzwierciedlają wyniki testu Walda. Test Walda ma następującą postać: $H_0: \beta_i = 0$, $H_A: \beta_i \neq 0$. Wykorzystana statystyka: $W = \frac{\beta_i}{var(\beta_i)}$. Pod warunkiem $H_0$, rozkład statystyki można przybliżyć za pomocą standardowego rozkładu normalnego. 
 
-Z przedstawionego podsumowania można wywnioskować, że przyjmując poziom istotności na poziomie $\alpha=0.01$, wszystkie zmienne objaśniające zawarte w modelu są istotne (brak podstaw do odrzucenia $H_0$).
+Z przedstawionego podsumowania można wywnioskować, że przyjmując poziom istotności $\alpha=0.01$, wszystkie zmienne objaśniające zawarte w modelu są istotne (brak podstaw do odrzucenia $H_0$).
 
 Obliczenie prawdopodobieństwo sukcesu dla studenta u którego anxiety=13 i numeracy=10 można przeprowadzić ręcznie na podstawie wzoru:
 $$
 p = \frac{e^{\hat{\beta_0} + \hat{\beta_1}*10 + \hat{\beta_2}*13}}{1 + e^{\hat{\beta_0} + \hat{\beta_1}*10 + \hat{\beta_2}*13}}
 $$
-```{r manual_prob}
+```{r manual_prob, echo=FALSE}
 model_coefs<- model_logit$coefficients
 model_res <- sum(c(1, 10, 13) * model_coefs)
 estimated_p <- exp(model_res) / (1 + exp(model_res))
@@ -98,7 +99,7 @@ print(paste('Manually estimated probability for numeracy=13, anxiety=10: ', roun
 ```
 
 Można również skorzystać z gotowej funkcji:
-```{r automatic_prob_logit}
+```{r automatic_prob_logit, echo=FALSE}
 pred_logit <- predict(model_logit, data.frame(anxiety=13, numeracy=c(10)), type="response")
 print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_logit, 5)))
 ```
@@ -110,7 +111,7 @@ $$
 probit(p_i) = \Phi^{-1}(p_i)
 $$
 
-```{r ModelFitProbit}
+```{r ModelFitProbit, echo=FALSE}
 model_probit <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial(link="probit"))
 summary(model_probit)
 ```
@@ -121,10 +122,21 @@ $$
 $$
 
 Predykcja dla numeracy=13, anxiety=10:
-```{r automatic_prob_probit}
+```{r automatic_prob_probit, echo=FALSE}
 pred_probit <- predict(model_probit, data.frame(anxiety=13, numeracy=c(10)), type="response")
 print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_probit, 5)))
 ```
+
+Podstawowym scenariuszem dla funkcji probit jest sytuacja w której istnieje podejrzenie, że wektor odpowiedzi powstał wskutek obcięcia regresji liniowej. Rrzeczywiście jeśli przyjąć, że $\widetilde{y} = -x^T\beta + \epsilon$, przy czym $\epsilon \sim N(0, 1)$ oraz
+$$
+y = 
+  \begin{cases} 
+    1 & \mbox{jeśli } \widetilde{y} \leq 0\\ 
+    0 & \mbox{jeśli } \widetilde{y} > 0 
+  \end{cases}
+$$
+
+wtedy: $\mathbb{P}(y=1|x) = \mathbb{P}(\widetilde{y} \leq 0 ) = \mathbb{P}(-x^T\beta + \epsilon \leq 0) = \mathbb{P}(\epsilon \leq x^T \beta) = \Phi(x^T \beta)$ z czego wynika, że: $x^T \beta = \Phi(\mathbb{P}(y=1|x))$.
 
 ## Dopasowanie modelu (cauchit)
 
@@ -134,7 +146,7 @@ cauchit(p_i) = F^{-1}(p_i)
 $$
 Przy czym F to dystrybuanta rozkładu Cauchy'ego. 
 
-```{r ModelFitCauchit}
+```{r ModelFitCauchit, echo=FALSE}
 model_cauchit <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial(link="cauchit"))
 summary(model_cauchit)
 ```
@@ -147,7 +159,7 @@ $$
 $$
 
 Predykcja dla numeracy=13, anxiety=10:
-```{r automatic_prob_cauchit}
+```{r automatic_prob_cauchit, echo=FALSE}
 pred_cauchit <- predict(model_cauchit, data.frame(anxiety=13, numeracy=c(10)), type="response")
 print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_cauchit, 5)))
 ```
@@ -159,7 +171,7 @@ $$
 cloglog(p_i) = log(-log(1 - p_i))
 $$
 
-```{r ModelFitCloglog}
+```{r ModelFitCloglog, echo=FALSE}
 model_cloglog <- glm(success ~ numeracy + anxiety, data=data_df ,family=binomial(link="cloglog"))
 summary(model_cloglog)
 ```
@@ -170,14 +182,23 @@ $$
 $$
 
 Predykcja dla numeracy=13, anxiety=10:
-```{r automatic_prob_cloglog}
+```{r automatic_prob_cloglog, echo=FALSE}
 pred_cloglog <- predict(model_cloglog, data.frame(anxiety=13, numeracy=c(10)), type="response")
 print(paste('Automatically estimated probability for numeracy=13, anxiety=10: ', round(pred_cloglog, 5)))
 ```
 
+Przeprowadzając rozumowanie analogiczne do tego, które rozpisane zostało dla funkcji probit okazuje się, że funkcje cloglog stosuje się gdy istnieje podejrzenie, że wektor odpowiedzi powstał wskutek obcięcia zmiennej losowej o rozkładzie Poissona tzn: $\widetilde{y} = Poi(\lambda)$ przy czym:
+$$
+y = 
+  \begin{cases} 
+    1 & \mbox{jeśli } \widetilde{y} \geq 1\\ 
+    0 & \mbox{jeśli } \widetilde{y} = 0 
+  \end{cases}
+$$
+
 ## Porównanie przedstawionych modeli
 
-```{r Models_Comparison}
+```{r Models_Comparison, echo=FALSE}
 model_names <- c("logit", "probit", "cauchit", "cloglog")
 aic_v <- c(AIC(model_logit), AIC(model_probit), AIC(model_cauchit), AIC(model_cloglog))
 deviance <- c(model_logit$deviance, model_probit$deviance, model_cauchit$deviance, model_cloglog$deviance)
@@ -187,10 +208,10 @@ comparison_df <- data.frame(AIC=aic_v, Deviance=deviance)
 comparison_df
 ```
 
-Model wykorzystujący probit jako link function charakteryzuje się najniższą wartością AIC oraz Deviance. Na tej podstawie mogę określić, że jest to model charakteryzujący się najlepszym dopasowaniem = najmniejszym błędem.  
+Model wykorzystujący probit jako link function charakteryzuje się najniższą wartością AIC oraz Deviance. Na tej podstawie można stwierdzić, że jest to model o najlepszym dopasowaniu tzn. najmniejszym błędzie.  
 
-Ogólnie warto zauważyć, że wszystkie wartości są do siebie zbliżone, z czego wynika, że przedstawione modele niewiele się od siebie różnią. Aby zwizualizować różnicę postanowiłem przedstawić wykresy poszczególnych funkcji:
-```{r LinkFunctionsComparison}
+Ogólnie warto zauważyć, że wszystkie wartości są do siebie zbliżone, z czego wynika, że przedstawione modele niewiele się od siebie różnią. Różnice pomiędzy poszczególnymi funkcjami przedstawione zostały na wykresie poniżej:
+```{r LinkFunctionsComparison, echo=FALSE}
 args = seq(-4, 4, by=0.01)
 logit_y <- logitlink(args, inverse=TRUE)
 probit_y <- probitlink(args, inverse=TRUE)
@@ -199,12 +220,14 @@ cloglog_y <- clogloglink(args, inverse=TRUE)
 
 link_funcs_ds <- data.frame(x=args, logit=logit_y, probit=probit_y, cauchit=cauchit_y, cloglog=cloglog_y)
 link_funcs_ds.melted <- melt(link_funcs_ds, id = c("x"))
-colnames(link_funcs_ds.melted) <- c("x", "Linkage", "Probability")
+colnames(link_funcs_ds.melted) <- c("x", "Link", "Probability")
 
 p <- ggplot(link_funcs_ds.melted, aes(x=x, y=Probability)) +
-     geom_line(aes(color=Linkage))
+     geom_line(aes(color=Link)) +
+     ggtitle("Link functions visualization")
 plot(p)
 ```
+
 
 ### Krzywe ROC
 
@@ -212,7 +235,7 @@ Innym sposobem na porównanie skuteczności modeli jest wykorzystanie krzywej RO
 
 Zwiększanie wartości $T$ powoduje, że coraz trudniej jest przypisać obserwację do $Y=1$. Analogicznie jeśli wartość $T$ będzie obniżana, coraz więcej obserwacji będzie przypisywanych do $Y=1$. 
 
-Zastanówmy się teraz nad dwoma miarami oceny skuteczności klasyfikatora binarnego:
+Zastanówmy się teraz nad dwiema miarami oceny skuteczności klasyfikatora binarnego:
 $$
 TruePositiveRate = \frac{TP}{FN + TP}
 $$
@@ -227,7 +250,7 @@ Jeśli $T=1$, wtedy dla każdej obserwacji przypisywane jest $Y=0$, łatwo zaobs
 
 Przechodząc z wartościami $T$ od 0 do 1 i obliczając dla kolejnych wartości $TPR$ i $FPR$, otrzymam punkty składające się na krzywą ROC. Pole pod wykresem krzywej ROC nazywane jest AUC (area under the curve) i wykorzystywane jest do oceny skuteczności modeli. 
 
-```{r ROC_Curve, message=FALSE}
+```{r ROC_Curve, message=FALSE, echo=FALSE}
 test_prob_logit = predict(model_logit, newdata = data_df, type = "response")
 test_prob_probit = predict(model_probit, newdata = data_df, type = "response")
 test_prob_cauchit = predict(model_cauchit, newdata = data_df, type = "response")
