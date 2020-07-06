@@ -2,7 +2,8 @@
 title: "Zaawansowane Modele Liniowe 3"
 author: "Błażej Wiórek"
 date: "4/21/2020"
-output: html_document
+knit: (function(input_file, encoding) { out_dir <- '../docs'; rmarkdown::render(input_file,
+  encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'Modele3.html'))})
 ---
 
 ```{r setup, include=FALSE}
@@ -10,8 +11,11 @@ library(ggplot2)
 library(tidyr)
 library(dplyr)
 library(aod)
+library(knitr)
+library(kableExtra)
 
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+main_pallette = "YlGnBu"
 ```
 
 ## Zadanie 1
@@ -22,12 +26,13 @@ Jedynym poleceniem zadania jest pobranie danych więc raport rozpoczyna się od 
 
 Wstępny przegląd zbioru danych:
 ```{r data_overwiev}
-shop_data <- read.csv("C:\\Users\\Blazej Wiorek\\Desktop\\RProjects\\ZaawansowaneModeleLiniowe\\shop_data.csv")
+shop_data <- read.csv("./sklep.csv")
 
 glimpse(as_tibble(shop_data))
 ```
 
 Na potrzeby kolejnych zadań przeprowadzone zostało zrzutowanie predytkorów na typ 'factor'. Tam gdzie było to możliwe zdefiniowany został porządek na otrzymanych zmiennych kategorycznych. 
+
 ```{r data_setup}
 days_of_week <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -41,70 +46,83 @@ glimpse(as_tibble(shop_data))
 ```
 
 Pierwszą rzeczą którą można zaobserwować na wykresie poniżej jest różnica w liczbie klientów pomiędzy dniami roboczymi a weekendem. Mniej oczywistą cechą jest to, że wariancja liczby klientów w dniach roboczych jest większa. Odpowiada to założeniom modelu Poissona jako, że dla $X \sim Poi(\lambda)$ zachodzi $E[X]= Var[X] = \lambda$ a więc wariancja rośnie wraz ze średnią. Można wysnuć hipoteze, że zamiast rozpatrywania każdego dnia tygodnia osobno, warto rozróżniać dni tygodnia tylko na podstawie tego czy są to dni robocze czy weekend. Realizacja tego pomysłu stanowi treść zadania 4.
+
 ```{r boxplot_1}
-clients_day_histogram <- ggplot(shop_data, aes(x=day, y=no.klients)) + 
-                         geom_boxplot() + 
-                         ggtitle("Amount of clients relative to weekdays")
-
-plot(clients_day_histogram)
+shop_data %>%
+  ggplot(aes(x=day, y=no.klients, fill=day)) + 
+  geom_boxplot() + 
+  ggtitle("Amount of clients relative to weekdays") +
+  scale_fill_brewer(palette=main_pallette) + 
+  labs(x = "Day", y = "No. clients", fill = "Day")
 ```
 
-W przeciwieństwie do dni tygodnia wygląda na to, że fakt, że w danym dniu odbyło sie wydarzenie sportowe nie ma znaczącego wpływu na liczbę klientów. 
+W przeciwieństwie do dni tygodnia wygląda na to, że obecność wydarzeń sportowych danego dnia nie ma wpływu na liczbę klientów. 
+
 ```{r boxplot_2}
-clients_event_histogram <- ggplot(shop_data, aes(x=events, y=no.klients)) + geom_boxplot() + ggtitle("Amount of clients relative to sport events")
-plot(clients_event_histogram)
+shop_data %>%
+  mutate(events = recode(events, 
+                         `0` = "No events",
+                         `1` = "Events")) %>%
+  ggplot(aes(x=events, y=no.klients, fill=events)) + 
+  geom_boxplot() + 
+  ggtitle("Amount of clients relative to sport events") + 
+  scale_fill_brewer(palette=main_pallette) + 
+  labs(x = "Presence of sport events", y = "No. clients", fill = "events")
 ```
 
-Kolejny wykres przedstawia rozkład klientów w poszczególych godzinach pracy sklepu. Ze zrozumiałych powodów pora dnia istotnie różnicuje liczbę klientów w sklepie. Jest to kolejny wykres sugerujący, że można wprowadzić grupowanie. Można to zrealizować np. ze względu na godzinny poranne [8, 11], godziny popołudniowe [12, 15], godziny wieczorne [16, 19] oraz godziny nocne [20, 23]. Pomysł ten został zrealizowany w zadaniu 4.
+Kolejny wykres przedstawia rozkład klientów w poszczególych godzinach pracy sklepu. Ze zrozumiałych powodów pora dnia istotnie różnicuje liczbę klientów w sklepie. Jest to kolejny wykres sugerujący, że można wprowadzić grupowanie. Jednym z pomysłów na realizacje tego zadania jest podział ze względu na godzinny poranne [8, 11], godziny popołudniowe [12, 15], godziny wieczorne [16, 19] oraz godziny nocne [20, 23]. Przedstawione grupowanie zostało wprowadzone w zadaniu 4.
+
 ```{r boxplot_3}
-clients_hour_histogram <- ggplot(shop_data, aes(x=hour_fct, y=no.klients)) + geom_boxplot() + ggtitle("Amount of clients relative to hours")
+shop_data.groups <- shop_data %>% 
+                    mutate(hour_blocks = cut(hour, seq(0, 24, 4), right=F)) 
+
+
+clients_hour_histogram <- ggplot(shop_data.groups, aes(x=hour_fct, y=no.klients, fill=hour_blocks)) + 
+  geom_boxplot() + 
+  ggtitle("Amount of clients relative to hours") +
+  scale_fill_brewer(palette="YlGnBu") + 
+  labs(x = "Hour", y = "No. clients", fill = "Hour group")
 plot(clients_hour_histogram)
 ```
 
-Można się zastanowić czy nie mam tutaj do czynienia ze zjawiskiem nadmiernej dyspersji szczególnie w kontekście liczby klientów pomiędzy godziną 16 a 19. Na podstawie średniej i wariancji (obliczone niżej) można wnioskować, że faktycznie wspomniany problem pojawia się w przypadku tego zbioru danych. Na chwile obecną nie podjęte zostaną żadne kroki mające na celu rozwiązanie tego problemu, warto jednak mieć to w pamięci. 
+Można się zastanowić czy nie mam tutaj do czynienia ze zjawiskiem nadmiernej dyspersji szczególnie w kontekście liczby klientów pomiędzy godziną 16 a 19. Na podstawie średniej i wariancji (obliczone niżej) można wnioskować, że faktycznie wspomniany problem pojawia się w przypadku tego zbioru danych. Na chwile obecną nie podjęte zostaną żadne kroki mające na celu rozwiązanie tego problemu jako, że problem ten stanowi treść kolejnego raportu.
+
 ```{r overdispersion}
 clients_by_hours <-shop_data %>% dplyr::select(no.klients, hour) %>% filter(hour >=16 & hour <= 19)
-paste("Mean: ", mean(clients_by_hours$no.klients), ", Std: ", sd(clients_by_hours$no.klients)^2)
+paste("Mean: ", round(mean(clients_by_hours$no.klients), 4), 
+      ", Std: ", round(sd(clients_by_hours$no.klients)^2, 4))
 ```
 
 Wykres poniżej stanowi podsumowanie wykresów które zostały otrzymane do tej pory jako, że zawiera infromacje na temat liczby klientów z uwzględnieniem wszystkich predyktorów. 
+
 ```{r summary_plot}
-summary_plot <- qplot(hour_fct, no.klients, shape = as.factor(events),col = day, data = shop_data) + ggtitle("Number of clients - summary plot")
+summary_plot <- qplot(hour_fct, no.klients, color = day, data = shop_data) + 
+  ggtitle("Number of clients summary") + 
+  labs(x = "Hour", y = "No. clients")
 plot(summary_plot)
-```
-
-Wykres poniżej umacnia w przekonaniu, że wydarzenia sportowe nie maja wpływu na liczbę klientów. 
-```{r importance_of_events}
-summary_plot_2 <- qplot(hour_fct, no.klients, facets = events ~ day, data = shop_data) + ggtitle("Importance of events")
-plot(summary_plot_2)
-```
-
-Dwa wykresy poniżej nie wnoszą nowych informacji jednak zdecydowałem się dołączyć na rzecz kompletności raportu. 
-```{r example_plot_1}
-summary_plot_3 <- qplot(hour_fct, no.klients, color = day, data = shop_data)
-plot(summary_plot_3)
-```
-
-```{r example_plot_2}
-summary_plot_4 <- qplot(hour_fct, no.klients, facets = ~day, data = shop_data)
-plot(summary_plot_4)
 ```
 
 ## Zadanie 3
 
-w zadaniu mowa jest o tym, że wszystkie zmienne objaśniające mają być zakodowane jako factor. Warto sie więc upewnić, że dane spełniają to założenie. 
+w zadaniu mowa jest o tym, że wszystkie zmienne objaśniające mają być zakodowane jako zmienna kategoryczna. Warto sie więc upewnić, że dane spełniają to założenie. 
+
 ```{r check_if_factors}
 shop_data_fct <- shop_data %>% dplyr::select(-c("hour"))
 glimpse(as_tibble(shop_data_fct))
 ```
 
 Zadanie polega na sprawdzeniu co się stanie w przypadku próby estymowania liczby klientów na podstawie predyktorów kategorycznych uwzględniając wszystkie interakcje pomiędzy poszczególnymi poziomami. Wprowadzone interakcje mają postać indykatorów przy czym regresja polega na uwzględnienie wpływu godziny, dnia tygodnia i wydarzenia sportowego na liczbe klientów. Wprowadzenie wszystkich żądanych interakcji powoduje znaczny wzrost liczby parametrów modelu. Aby obliczyć liczbę nowych współczynników należy określić liczbę poziomów poszczególnych predyktorów:
+
 ```{r levels_amount}
 amount_of_levels <- function(r) length(levels(r))
-lapply(shop_data_fct, amount_of_levels)
+amount_of_levels_df <- lapply(shop_data_fct %>% select(-c("no.klients")), amount_of_levels) 
+amount_of_levels_df <- as.data.frame(amount_of_levels_df)
+rownames(amount_of_levels_df) <- c("No. levels")
+amount_of_levels_df %>% kable() %>% kable_styling()
 ```
 
 Na podstawie tej informacji wiem, że należy się spodziewać $7*2*16 = 224$ parametrów modelu, co znajduje swoje potwierdzenie we fragmencie kodu zamieszczonego ponżej. 
+
 ```{r interaction_coefs_n}
 poisson.all_interactions <- glm(no.klients ~ hour_fct*day*events, family="poisson", data=shop_data_fct)
 coefs_n <- length(poisson.all_interactions$coefficients)
@@ -112,6 +130,7 @@ paste("Amount of model parameters: ", coefs_n)
 ```
 
 W analogiczny sposób można określić liczbę parametrów związanych z obecnością wydarzenia sportowego tzn. jeśli wiem, że wszystkich parametrów jest 224 a zmienna events ma 2 poziomy, wystarczy wziąć $\frac{224}{2} = 112$. Równoważnie w sposób automatyczny:
+
 ```{r events_interactions_n}
 is_events_coef <- grepl("events", names(poisson.all_interactions$coefficients))
 all_interactions_summary <- summary(poisson.all_interactions)
@@ -121,17 +140,21 @@ paste("Events interaction terms: ", dim(events_coef)[1])
 
 Kolejne pytanie dotyczy istotności wydarzenia sportowego dla modelu.
 ```{r event_importance}
-events_coef[1, ]
+sport_events_coef <- as.data.frame(round(events_coef[1, ], 4))
+colnames(sport_events_coef) <- c("Sport events coef.")
+sport_events_coef %>% t() %>% kable() %>% kable_styling()
 ```
+
 Z powyższego podsumowania wnioskuje, że włączenie wydarzenia sportowego nie jest konieczne (brak podstaw do odrzucenia $H_0: \beta_{events} = 0$).
 
 Ostatnie pytanie dotyczy istotności interakcji związanych z wydarzeniem sportowym. Aby odpowiedzieć na to pytanie zlicze te współczynniki dla których p-wartość jest mniejsza niż standardowy poziom istotności $\alpha = 0.05$. 
 ```{r event_interaction_importance}
-sum(events_coef[, 4] < 0.05)
+paste("Irrelevant predictors at 0.05: ", sum(events_coef[, 4] < 0.05))
 ```
 Spośród 112 współczynników związanych z wydarzeniem sportowym i zaledwie w 7 przypadkach hipoteza zerowa testu istotności została odrzucona. Można się spodziewać, że otrzymana liczba to błąd losowy związany z mocą testu. 
 
 Przedstawione wnioskowanie sugeruje, że można pozbyć się predyktora związanego z wydarzeniami sportowymi z modelu. Podstawową zaletą takiego posunięcia jest zmniejszenie liczby parametrów modelu. Aby w jakiś sposób potwierdzić ten wniosek przedstawione zostało porównanie modelu z wykorzystaniem events oraz po usunięciu events ze zbioru predyktorów.
+
 ```{r model comparison}
 poisson.without_events <- glm(no.klients ~ hour_fct*day - events, family="poisson", data=shop_data_fct)
 
@@ -145,10 +168,12 @@ compare_models <- function(models_lst) {
 
 models <- list(poi_full=poisson.all_interactions, poi_no_events=poisson.without_events)
 summary_df <- compare_models(models)
-summary_df
+colnames(summary_df) <- c("Full model", "Reduced model")
+rownames(summary_df) <- c("No. parameters", "AIC", "BIC", "Df")
+round(summary_df, 4) %>% kable() %>% kable_styling()
 ```
-Współczynniki dopasowania modelu AIC oraz BIC są mniejsze dla modelu bez predyktora events. Dodatkowo liczba parametrów modelu zmiejszyła się o połowę.
 
+Współczynniki dopasowania modelu AIC oraz BIC są mniejsze dla modelu bez predyktora events. Dodatkowo liczba parametrów modelu zmiejszyła się o połowę.
 
 ## Zadanie 4
 
@@ -172,7 +197,9 @@ Jako, że model nie jest zagnieżdżony w modelu zawierającym wszystkie interak
 ```{r model_comparison_2}
 models <- list(poi_full=poisson.all_interactions, poi_reduced=poisson.reduced)
 summary_df <- compare_models(models)
-summary_df
+colnames(summary_df) <- c("Full model", "Reduced model")
+rownames(summary_df) <- c("No. parameters", "AIC", "BIC", "Df")
+round(summary_df, 4) %>% kable() %>% kable_styling()
 ```
 
 Wartości AIC oraz BIC sugerują, że jest to najlepszy z modeli uzyskanych do tej pory. Dodatkowo warto zwrócić uwage, ze zawiera on zaledwie 8 współczynników. 
@@ -225,11 +252,16 @@ coef_val <- c(m_coefs["(Intercept)"] + m_coefs["is_workday1"],
               m_coefs["(Intercept)"] + m_coefs["hour_blocks[16,20)"],
               m_coefs["(Intercept)"] + m_coefs["hour_blocks[20,24)"])
 
-plan_matrix <- data.frame(subgroups=as.vector(subgroups), clients=as.vector(clients), lin_pred=lin_pred, coef_val=coef_val)
-plan_matrix
+plan_matrix <- data.frame(subgroups=as.vector(subgroups), 
+                          clients=as.vector(clients), 
+                          lin_pred=lin_pred, 
+                          coef_val=coef_val)
+plan_matrix <- plan_matrix %>% mutate(coef_val = round(coef_val, 4)) 
+colnames(plan_matrix) <- c("Hour group", "No. clients", "Predictors", "Coef. value")
+plan_matrix  %>% kable() %>% kable_styling()
 ```
 
-Należy zwrócić uwagę na to, że zgodnie z oczekiwaniami współczynniki odpowiadające sobocie i niedzieli są porównywalne. W przypadku dni roboczych obserwowana jest większa wariancja. Dodatkowo jako baseline przyjęta została wartość odpowiadająca weekendowi w godzinach porannych ([8, 12)).
+Należy zwrócić uwagę na to, że zgodnie z oczekiwaniami współczynniki odpowiadające sobocie i niedzieli są porównywalne. W przypadku dni roboczych obserwowana jest większa wariancja. Istotna uwaga jest taka, że jako baseline przyjęta została wartość odpowiadająca weekendowi w godzinach porannych ([8, 12)).
 
 ## Zadanie 6
 
@@ -258,7 +290,7 @@ Co jest równoważne testowaniu $\beta_1 = 0$, $\beta_2 = 0$, $\beta_3 = 0$.
 ```{r Wald_p_val}
 W <- t(L %*% est) %*% solve(L %*% var_mtrx %*% t(L)) %*% (L %*% est)
 p_val <- 1-pchisq(W, df=4)
-paste("P-value for Wald test: ", p_val[1, 1])
+paste("P-value for Wald test: ", round(p_val[1, 1], 4))
 ```
 
 Nie ma zatem podstaw do odrzucenia hipotezy $H_0$.
@@ -276,15 +308,17 @@ pred_df <- data.frame(is_workday=is_workday_levels, hour_blocks=hour_levels)
 clients_prediction <- predict(poisson.reduced, pred_df, type="response")
 
 pred_df["clients_pred"] <- clients_prediction
-pred_df["client_per_worker"] <- ceiling(pred_df["clients_pred"] / 20)
-pred_df
+pred_df["clients_per_worker"] <- ceiling(pred_df["clients_pred"] / 20)
+pred_df <- pred_df %>% mutate(clients_pred = round(clients_pred, 4))
+colnames(pred_df) <- c("Workday", "Hour block", "Predicted no. clients", "Clients per worker")
+pred_df %>% kable() %>% kable_styling()
 ```
 
-Kolumna clients_pred zawiera szacowaną liczbę klientów w ciągu godziny w zadanym bloku czterogodzinnym. kolumna client_per_worker to liczba pracowników w bloku czterogodzinnym którzy są potrzebni do obsługi zadanej liczby klientów. Jeśli założyć, że pracownik nie może pracować więcej niż 8h dziennie to można zaproponować gólny grafik w następujący sposób: 
+Jeśli założyć, że pracownik nie może pracować więcej niż 8h dziennie to można zaproponować następujący grafik: 
 
 ```{r general_schedule, echo=FALSE}
-pred_df["schedule"] = c("P1", "P1", "P2", "P2", "P1 + P2", "P2", "P1 + P3 + P4", "P3 + P4")
-pred_df
+pred_df["Schedule"] = c("P1", "P1", "P2", "P2", "P1 + P2", "P2", "P1 + P3 + P4", "P3 + P4")
+pred_df %>% select(-`Predicted no. clients`, -`Clients per worker`) %>% kable() %>% kable_styling()
 ```
 
 Oznaczenie $P_i$ to okreslenie i-tego pracownika. Mam zatem dwie zmiany weekendowe - poranną [8, 16) i nocną [16, 24) oraz nieco bardziej skomplikowany układ pracowników w czasie tygodnia. Jeśli przyjąć ustawienie takie jak przedstawione i po prostu zidentyfikować każde $Pi$ z jedną osobą to każdy pracownik mieściłby się w limicie 8h dziennie ale musiałby pracować 56h tygodniowo w przypadku $P1$ i $P2$ oraz 40h tygodniowo w przypadku $P3$, $P4$. Aby rozwiązać ten problem można wprowadzić następujący grafik tygodniowy:
@@ -310,7 +344,7 @@ week_1[2, c(6, 7)] <- "P2"
 week_1[3, c(6, 7)] <- "P3"
 week_1[4, c(6, 7)] <- "P4"
 
-week_1
+week_1 %>% kable() %>% kable_styling()
 ```
 
 Tym sposobem otrzymuje, że każdy pracownik będzie pracował 24h tygodniowo. Może się to wydawać niewiele ale biorąc pod uwagę fakt, że są to zazwyczaj prace dorywcze wydaje się to być racjonalnym założeniem.
