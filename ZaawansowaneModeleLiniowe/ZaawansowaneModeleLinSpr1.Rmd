@@ -211,6 +211,7 @@ comparison_df
 Model wykorzystujący probit jako link function charakteryzuje się najniższą wartością AIC oraz Deviance. Na tej podstawie można stwierdzić, że jest to model o najlepszym dopasowaniu tzn. najmniejszym błędzie.  
 
 Ogólnie warto zauważyć, że wszystkie wartości są do siebie zbliżone, z czego wynika, że przedstawione modele niewiele się od siebie różnią. Różnice pomiędzy poszczególnymi funkcjami przedstawione zostały na wykresie poniżej:
+
 ```{r LinkFunctionsComparison, echo=FALSE}
 args = seq(-4, 4, by=0.01)
 logit_y <- logitlink(args, inverse=TRUE)
